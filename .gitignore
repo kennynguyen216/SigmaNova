@@ -1,0 +1,15 @@
+build/
+vcpkg_installed/
+.vs/
+.vscode/
+out/
+*.user
+*.suo
+*.VC.db
+*.VC.opendb
+*.obj
+*.pdb
+*.ilk
+*.exe
+*.dll
+*.log
