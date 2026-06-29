@@ -21,6 +21,11 @@ void framebuffer_size_callback(GLFWwindow*, int width, int height){
 std::string readFile(const char* path) 
 {
     std::ifstream file(path);
+
+    if(!file.is_open()){
+        std::cout << "Failed to open the file" << path << std::endl;
+        return "";
+    }
     std::stringstream buffer;
 
     buffer << file.rdbuf();
