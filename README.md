@@ -28,4 +28,4 @@ Set up the project from scratch and prove the toolchain works:
 
 ## Build Status
 
-Not started yet. Dependencies are installed locally, but the project code has intentionally been reset so development can begin from step 0.
+Not started yet. Im boutta ball out tho.
