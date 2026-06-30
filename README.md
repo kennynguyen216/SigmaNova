@@ -28,4 +28,20 @@ Set up the project from scratch and prove the toolchain works:
 
 ## Build Status
 
-Not started yet. Im boutta ball out tho.
+### 2026-06-28
+
+- Started the SigmaNova repository and README.
+- Set up the first OpenGL "Hello World" milestone.
+
+### 2026-06-29
+
+- Added Escape key handling so the window can close cleanly.
+- Drew the first triangle.
+- Built the first OpenGL triangle rendering pipeline.
+- Added basic shader file loading error output.
+
+### 2026-06-30
+
+- Cleaned up early project code and spacing.
+- Added indexed rectangle rendering with an EBO.
+- Added a uniform-driven shader color so the shape pulses green over time.
