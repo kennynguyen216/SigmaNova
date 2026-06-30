@@ -23,7 +23,7 @@ std::string readFile(const char* path)
     std::ifstream file(path);
 
     if(!file.is_open()){
-        std::cout << "Failed to open the file" << path << std::endl;
+        std::cout << "Failed to open the file: " << path << std::endl;
         return "";
     }
     std::stringstream buffer;
@@ -58,7 +58,6 @@ int main()
     if (window == nullptr)
     {
         std::cout << "Failed to create GLFW window" << std:: endl;
-        glfwDestroyWindow(window);
         glfwTerminate();
         return -1;
     }
