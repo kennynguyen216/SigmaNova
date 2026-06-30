@@ -4,6 +4,7 @@
 #include <fstream> 
 #include <sstream>
 #include <string>
+#include <cmath>
 
 
 void processInput(GLFWwindow* window) {
@@ -147,7 +148,11 @@ int main()
     glDeleteShader(fragmentShader);
     glDeleteShader(vertexShader);
 
+// this tells opengl to make it wire frame
+//glPolygonMode(GL_FRONT_AND_BACK, GL_LINE);
 
+//this tells opengl to turn it back
+//glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
 
 // if the window size changes cal this functon so opengl updates its viewport
     glfwSetFramebufferSizeCallback(window,framebuffer_size_callback);
@@ -163,6 +168,12 @@ int main()
         glClear(GL_COLOR_BUFFER_BIT);
 
         glUseProgram(shaderProgram);
+
+        float timeValue = static_cast<float>(glfwGetTime());
+        float greenValue = (sin(timeValue)/ 2.0f) + 0.5f;
+
+        int vertexColorLocation = glGetUniformLocation(shaderProgram, "ourColor");
+        glUniform4f(vertexColorLocation, 0.0f, greenValue, 0.0f, 1.0f);
         glBindVertexArray(VAO);
         glDrawElements(GL_TRIANGLES,6,GL_UNSIGNED_INT, 0);
 
