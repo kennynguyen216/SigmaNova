@@ -4,7 +4,6 @@
 #include <fstream> 
 #include <sstream>
 #include <string>
-#include <cmath>
 
 
 void processInput(GLFWwindow* window) {
@@ -39,17 +38,16 @@ std::string readFile(const char* path)
 
 int main()
 {   
-// setting vertices of rectangle
+// setting vertices of triangle
     float vertices[] = {
-         0.5f,  0.5f, 0.0f,
-         0.5f, -0.5f, 0.0f,
-        -0.5f, -0.5f, 0.0f,
-        -0.5f,  0.5f, 0.0f
+         // positions         // colors
+     0.5f, -0.5f, 0.0f,  1.0f, 0.0f, 0.0f,   // bottom right
+    -0.5f, -0.5f, 0.0f,  0.0f, 1.0f, 0.0f,   // bottom left
+     0.0f,  0.5f, 0.0f,  0.0f, 0.0f, 1.0f    // top 
     };
 
     unsigned int indices[] = {
-        0,1,3, // this is the first triangle
-        1,2,3 // this is the second triangle
+        0, 1, 2
     };
 
     // this is initializng
@@ -95,9 +93,12 @@ int main()
 
     glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, EBO);
     glBufferData(GL_ELEMENT_ARRAY_BUFFER, sizeof(indices), indices, GL_STATIC_DRAW);
-
-    glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 3 * sizeof(float), (void*)0);
+//position attribute
+    glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 6 * sizeof(float), (void*)0);
     glEnableVertexAttribArray(0);
+// color attribute
+    glVertexAttribPointer(1,3, GL_FLOAT, GL_FALSE, 6*sizeof(float), (void*)(3 * sizeof(float)));
+    glEnableVertexAttribArray(1);
 //lets make a triangle and start coloring ts
     std::string vertexCode = readFile("shaders/triangle.vert");
     std::string fragmentCode = readFile("shaders/triangle.frag");
@@ -169,13 +170,8 @@ int main()
 
         glUseProgram(shaderProgram);
 
-        float timeValue = static_cast<float>(glfwGetTime());
-        float greenValue = (sin(timeValue)/ 2.0f) + 0.5f;
-
-        int vertexColorLocation = glGetUniformLocation(shaderProgram, "ourColor");
-        glUniform4f(vertexColorLocation, 0.0f, greenValue, 0.0f, 1.0f);
         glBindVertexArray(VAO);
-        glDrawElements(GL_TRIANGLES,6,GL_UNSIGNED_INT, 0);
+        glDrawElements(GL_TRIANGLES,3,GL_UNSIGNED_INT, 0);
 
 
         //shows newly drawn frame
