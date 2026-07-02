@@ -1,9 +1,9 @@
 #include <glad/glad.h>
 #include <GLFW/glfw3.h>
+
+#include "Shader.h"
+
 #include <iostream>
-#include <fstream> 
-#include <sstream>
-#include <string>
 
 
 void processInput(GLFWwindow* window) {
@@ -16,38 +16,19 @@ void framebuffer_size_callback(GLFWwindow*, int width, int height){
         glViewport(0, 0, width, height);
     }
 
-//this is opens the triangle vert and takes all the glsl code
-// and returns it as a c++ string 
-std::string readFile(const char* path) 
-{
-    std::ifstream file(path);
-
-    if(!file.is_open()){
-        std::cout << "Failed to open the file: " << path << std::endl;
-        return "";
-    }
-    std::stringstream buffer;
-
-    buffer << file.rdbuf();
-
-    return buffer.str();
-
-}
-
-
-
 int main()
 {   
-// setting vertices of triangle
+// fullscreen quad now 
     float vertices[] = {
-         // positions         // colors
-     0.5f, -0.5f, 0.0f,  1.0f, 0.0f, 0.0f,   // bottom right
-    -0.5f, -0.5f, 0.0f,  0.0f, 1.0f, 0.0f,   // bottom left
-     0.0f,  0.5f, 0.0f,  0.0f, 0.0f, 1.0f    // top 
+    -1.0f, -1.0f, 0.0f,  // bottom left
+     1.0f, -1.0f, 0.0f,  // bottom right
+     1.0f,  1.0f, 0.0f,  // top right
+    -1.0f,  1.0f, 0.0f   // top left
     };
 
     unsigned int indices[] = {
-        0, 1, 2
+        0, 1, 2,
+        2, 3, 0
     };
 
     // this is initializng
@@ -94,60 +75,9 @@ int main()
     glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, EBO);
     glBufferData(GL_ELEMENT_ARRAY_BUFFER, sizeof(indices), indices, GL_STATIC_DRAW);
 //position attribute
-    glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 6 * sizeof(float), (void*)0);
+    glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 3 * sizeof(float), (void*)0);
     glEnableVertexAttribArray(0);
-// color attribute
-    glVertexAttribPointer(1,3, GL_FLOAT, GL_FALSE, 6*sizeof(float), (void*)(3 * sizeof(float)));
-    glEnableVertexAttribArray(1);
-//lets make a triangle and start coloring ts
-    std::string vertexCode = readFile("shaders/triangle.vert");
-    std::string fragmentCode = readFile("shaders/triangle.frag");
-    const char* vertexShaderSource = vertexCode.c_str();
-    const char* fragmentShaderSource = fragmentCode.c_str();
-    //attaches shader text to object. not giving exact string lengths just until null teriminator
-    unsigned int vertexShader = glCreateShader(GL_VERTEX_SHADER);
-    glShaderSource(vertexShader, 1, &vertexShaderSource, nullptr);
-    glCompileShader(vertexShader);
-
-    // did it compile
-    int success; 
-    char infoLog[512];
-    glGetShaderiv(vertexShader, GL_COMPILE_STATUS, &success);
-    if(!success)
-    {
-        glGetShaderInfoLog(vertexShader, 512, nullptr, infoLog);
-        std::cout << "ERROR:::SHADER::VERTEX::COMPILATION_FAILED\n"
-                  << infoLog << std::endl;
-
-    }
-
-
-    unsigned int fragmentShader = glCreateShader(GL_FRAGMENT_SHADER);
-    glShaderSource(fragmentShader, 1, &fragmentShaderSource, nullptr);
-    glCompileShader(fragmentShader);
-
-    glGetShaderiv(fragmentShader, GL_COMPILE_STATUS, &success);
-    if(!success)
-    {
-        glGetShaderInfoLog(fragmentShader, 512, nullptr,infoLog);
-        std::cout << "ERROR::SHADER::FRAGMENT::COMPILATION_FAILED\n"
-                  << infoLog << std::endl;
-
-    }
-
-    unsigned int shaderProgram = glCreateProgram();
-    glAttachShader(shaderProgram, vertexShader);
-    glAttachShader(shaderProgram, fragmentShader);
-    glLinkProgram(shaderProgram);
-
-    glGetProgramiv(shaderProgram, GL_LINK_STATUS, &success);
-    if(!success) {
-        glGetProgramInfoLog(shaderProgram, 512, nullptr, infoLog);
-        std::cout << "ERROR::SHADER::PROGRAM::LINKING_ERROR\n"
-                  << infoLog << std::endl;
-    }
-    glDeleteShader(fragmentShader);
-    glDeleteShader(vertexShader);
+    Shader fullscreenShader("shaders/fullscreen.vert", "shaders/fullscreen.frag");
 
 // this tells opengl to make it wire frame
 //glPolygonMode(GL_FRONT_AND_BACK, GL_LINE);
@@ -168,10 +98,10 @@ int main()
         glClearColor(0.02f, 0.04f, 0.08f, 1.0f);
         glClear(GL_COLOR_BUFFER_BIT);
 
-        glUseProgram(shaderProgram);
+        fullscreenShader.use();
 
         glBindVertexArray(VAO);
-        glDrawElements(GL_TRIANGLES,3,GL_UNSIGNED_INT, 0);
+        glDrawElements(GL_TRIANGLES,6,GL_UNSIGNED_INT, 0);
 
 
         //shows newly drawn frame
@@ -185,7 +115,7 @@ int main()
     glDeleteVertexArrays(1, &VAO);
     glDeleteBuffers(1, &VBO);
     glDeleteBuffers(1, &EBO);
-    glDeleteProgram(shaderProgram);
+    glDeleteProgram(fullscreenShader.ID);
     glfwDestroyWindow(window);
     glfwTerminate();
     return 0;
