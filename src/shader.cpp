@@ -6,7 +6,8 @@
 #include <iostream>
 #include <sstream>
 
-void Shader::use() const{
+void Shader::use() const
+{
     glUseProgram(ID);
 }
 
@@ -20,22 +21,23 @@ void Shader::setVec2(const std::string& name, float x, float y) const
     glUniform2f(glGetUniformLocation(ID, name.c_str()), x, y);
 }
 
-std::string Shader::readFile(const char* path) {
+std::string Shader::readFile(const char* path)
+{
     std::ifstream file(path);
 
-    if(!file.is_open()){
+    if (!file.is_open()) {
         std::cout << "Failed to open the file: " << path << std::endl;
         return "";
     }
-    std::stringstream buffer;
 
+    std::stringstream buffer;
     buffer << file.rdbuf();
 
     return buffer.str();
-
 }
 
-void Shader::checkCompileErrors(unsigned int shader, const std::string& type){
+void Shader::checkCompileErrors(unsigned int shader, const std::string& type)
+{
     int success;
     char infoLog[1024];
 
@@ -58,8 +60,8 @@ void Shader::checkCompileErrors(unsigned int shader, const std::string& type){
     }
 }
 
-Shader::Shader(const char* vertexPath, const char* fragmentPath){
-
+Shader::Shader(const char* vertexPath, const char* fragmentPath)
+{
     std::string vertexCode = readFile(vertexPath);
     std::string fragmentCode = readFile(fragmentPath);
 
@@ -84,4 +86,4 @@ Shader::Shader(const char* vertexPath, const char* fragmentPath){
 
     glDeleteShader(vertexShader);
     glDeleteShader(fragmentShader);
-};
+}

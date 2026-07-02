@@ -1,8 +1,9 @@
-#pragma once 
+#pragma once
 
 #include <string>
 
-class Shader {
+class Shader
+{
 public:
     unsigned int ID;
 
