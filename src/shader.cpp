@@ -5,6 +5,7 @@
 #include <fstream>
 #include <iostream>
 #include <sstream>
+#include <glm/glm.hpp>
 
 void shader::use() const
 {
@@ -19,6 +20,11 @@ void shader::set_float(const std::string& name, float value) const
 void shader::set_vec2(const std::string& name, float x, float y) const
 {
     glUniform2f(glGetUniformLocation(id, name.c_str()), x, y);
+}
+
+void shader::set_vec3(const std::string& name, glm::vec3 value) const 
+{
+    glUniform3f(glGetUniformLocation(id, name.c_str()), value.x, value.y, value.z);
 }
 
 std::string shader::read_file(const char* path)

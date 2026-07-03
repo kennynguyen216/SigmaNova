@@ -2,8 +2,9 @@
 #include <GLFW/glfw3.h>
 
 #include "shader.h"
-
+#include <glm/glm.hpp>
 #include <iostream>
+#include "camera.h"
 
 namespace {
 constexpr int window_width = 800;
@@ -82,8 +83,11 @@ int main()
 
     glfwSetFramebufferSizeCallback(window, framebuffer_size_callback);
 
+    camera scene_camera;
+
     while (!glfwWindowShouldClose(window)) {
         process_input(window);
+        scene_camera.process_input(window);
 
         glClearColor(0.02f, 0.04f, 0.08f, 1.0f);
         glClear(GL_COLOR_BUFFER_BIT);
@@ -91,6 +95,14 @@ int main()
         fullscreen_shader.use();
         fullscreen_shader.set_float("u_time", static_cast<float>(glfwGetTime()));
         fullscreen_shader.set_vec2("u_resolution", window_width, window_height);
+        fullscreen_shader.set_vec3("u_camera_pos", scene_camera.position());
+        fullscreen_shader.set_vec3("u_camera_forward", scene_camera.forward());
+        fullscreen_shader.set_vec3("u_camera_right", scene_camera.right());
+        fullscreen_shader.set_vec3("u_camera_up", scene_camera.up());
+
+
+
+
         glBindVertexArray(vao);
         glDrawElements(GL_TRIANGLES, 6, GL_UNSIGNED_INT, 0);
 

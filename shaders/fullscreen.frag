@@ -6,6 +6,11 @@ out vec4 frag_color;
 
 uniform float u_time;
 uniform vec2 u_resolution;
+uniform vec3 u_camera_pos;
+uniform vec3 u_camera_forward;
+uniform vec3 u_camera_right;
+uniform vec3 u_camera_up;
+
 
 // helper function to help with ray sphere initersection 
 
@@ -31,12 +36,12 @@ void main()
     vec2 centered = uv * 2.0 - 1.0;
     centered.x *= u_resolution.x / u_resolution.y;
 
-    vec3 ray_origin = vec3(0.0, 0.0, 3.0);
-    vec3 ray_dir = normalize(vec3(centered, -1.0));
+    vec3 ray_origin = u_camera_pos;
+    vec3 ray_dir = normalize(u_camera_forward + centered.x * u_camera_right + centered.y * u_camera_up);
     vec3 sphere_center = vec3(0.0, 0.0, 0.0);
     float sphere_radius = 1.0;
 
-    vec3 background_color = ray_dir * 0.5 + 0.5;
+    vec3 background_color = vec3(0.01, 0.015, 0.03);
     float t = hit_sphere(ray_origin, ray_dir, sphere_center, sphere_radius);
 
     if (t > 0.0) {

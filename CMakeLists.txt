@@ -13,6 +13,7 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 add_executable(sigma_nova
     src/main.cpp
     src/shader.cpp
+    src/camera.cpp
 )
 
 find_package(glfw3 CONFIG REQUIRED)
