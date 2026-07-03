@@ -44,24 +44,50 @@ void main()
     float pulse = sin(u_time * 2.4) * 0.5 + 0.5;
     pulse = pulse * pulse;
 
-    vec3 surface_color = vec3(0.58, 0.07, 0.015);
     vec3 hot_color = mix(vec3(0.95, 0.18, 0.035), vec3(1.0, 0.55, 0.10), pulse);
     float emission_strength = 0.12 + 0.34 * pulse;
     float rim_strength = 0.22 + 0.45 * pulse;
     float core_strength = 0.18 + 0.55 * pulse;
     vec3 background_color = vec3(0.01, 0.015, 0.03);
+
     float t = hit_sphere(ray_origin, ray_dir, sphere_center, sphere_radius);
 
     if (t > 0.0) {
         vec3 hit_point = ray_origin + t * ray_dir;
         vec3 normal = normalize(hit_point - sphere_center);
+
+        float noise_scale = 13.0;
+        float noise_speed = 0.65;
+
+        float bands =
+            sin(normal.x * noise_scale + u_time * noise_speed) *
+            sin(normal.y * noise_scale * 1.37 - u_time * noise_speed * 0.8) *
+            sin(normal.z * noise_scale * 1.91 + u_time * noise_speed * 0.55);
+
+        bands = bands * 0.5 + 0.5;
+
+        float fine_bands =
+            sin((normal.x + normal.y) * noise_scale * 1.8 + u_time * noise_speed * 0.6) *
+            sin((normal.z - normal.y) * noise_scale * 2.2 - u_time * noise_speed * 0.4);
+
+        fine_bands = fine_bands * 0.5 + 0.5;
+
+        float surface_variation = mix(bands, fine_bands, 0.35);
+
+        vec3 cool_color = vec3(0.16, 0.012, 0.004);
+        vec3 warm_color = vec3(0.78, 0.10, 0.018);
+        vec3 hot_patch_color = vec3(1.0, 0.38, 0.06);
+        vec3 turbulent_color = mix(cool_color, warm_color, surface_variation);
+        float hot_mask = smoothstep(0.52, 0.88, surface_variation);
+        turbulent_color = mix(turbulent_color, hot_patch_color, hot_mask);
+
         float rim = 1.0 - max(dot(normal, -ray_dir), 0.0);
         rim = rim * rim;
         float facing = max(dot(normal, -ray_dir), 0.0);
         float core_glow = facing * facing;
         vec3 core_glow_color = hot_color * core_glow * core_strength;
         float light_amount = normal.y * 0.5 + 0.5;
-        vec3 surface = surface_color * light_amount;
+        vec3 surface = turbulent_color * light_amount;
         vec3 emission = hot_color * emission_strength;
         vec3 rim_glow = hot_color * rim * rim_strength;
 
