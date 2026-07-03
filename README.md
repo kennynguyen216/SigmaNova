@@ -12,6 +12,20 @@ The current build renders a ray-intersected sphere from a fullscreen fragment sh
 
 This milestone proves the core renderer path for SigmaNova: C++ owns camera movement, sends camera uniforms to GLSL, and the fragment shader generates a ray per pixel to test against a 3D object. This is the bridge from simple shader gradients toward volumetric raymarching.
 
+## Milestone Progression
+
+### 1. Fullscreen Shader Gradient
+
+![Fullscreen shader gradient milestone](assets/captures/fullscreen-gradient-milestone.png)
+
+This milestone proved that the renderer could use a fullscreen quad as a shader canvas. C++ sends `u_time` and `u_resolution` uniforms, and the fragment shader uses `gl_FragCoord` to compute a color for each pixel.
+
+### 2. Orbit Camera Ray-Sphere
+
+![Orbit camera ray-sphere milestone](assets/captures/orbit-camera-sphere-milestone.png)
+
+This milestone adds a ray-sphere intersection and a C++ orbit camera. The camera sends position, forward, right, and up vectors into GLSL, letting the fragment shader generate camera-controlled rays for each pixel.
+
 ## Planned Stack
 
 - C++
