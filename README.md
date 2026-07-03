@@ -40,6 +40,14 @@ This milestone proved that the renderer could use a fullscreen quad as a shader 
 
 This milestone adds a ray-sphere intersection and a C++ orbit camera. The camera sends position, forward, right, and up vectors into GLSL, letting the fragment shader generate camera-controlled rays for each pixel.
 
+#### Ray-Sphere Math Notes
+
+These notes show the derivation behind the ray-sphere intersection used in the fragment shader. The shader starts from the ray equation `P(t) = origin + t * direction`, substitutes that into the sphere equation, and solves the resulting quadratic to find whether the ray hits the sphere.
+
+![Ray-sphere intersection handwritten notes page 1](assets/captures/ray-sphere-notes-1.jpg)
+
+![Ray-sphere intersection handwritten notes page 2](assets/captures/ray-sphere-notes-2.jpg)
+
 ### 3. Red Giant Pulse
 
 ![Red giant pulse demo](assets/captures/red-giant-pulse.gif)
