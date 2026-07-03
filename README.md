@@ -6,7 +6,9 @@ The goal is to start from a clean graphics programming foundation, then build to
 
 ## Current Milestone
 
-[Red giant pulse demo](assets/captures/red-giant-pulse.mp4)
+![Red giant pulse demo](assets/captures/red-giant-pulse.gif)
+
+[Full MP4 demo](assets/captures/red-giant-pulse.mp4)
 
 The current build renders a red-giant-inspired emissive sphere from a fullscreen fragment shader. The sphere is ray-intersected per pixel, shaded with a surface normal, and enhanced with emissive color, rim glow, center glow, and a time-based pulse.
 
@@ -28,7 +30,9 @@ This milestone adds a ray-sphere intersection and a C++ orbit camera. The camera
 
 ### 3. Red Giant Pulse
 
-[Watch the red giant pulse demo](assets/captures/red-giant-pulse.mp4)
+![Red giant pulse demo](assets/captures/red-giant-pulse.gif)
+
+[Watch the full MP4 demo](assets/captures/red-giant-pulse.mp4)
 
 This milestone starts the visual language for the pre-supernova star. The shader keeps the ray-sphere foundation, then layers in red-orange surface color, time-varying emission, rim glow, and center glow so the object reads more like a hot red giant than a matte test sphere.
 
