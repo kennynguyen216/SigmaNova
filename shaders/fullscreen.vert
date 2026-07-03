@@ -2,7 +2,6 @@
 
 // expect a 3d input at attrivute location 0
 layout (location = 0) in vec3 aPos;
-uniform float uTime;
 
 void main() {
 

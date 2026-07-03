@@ -89,7 +89,7 @@ int main()
         glClear(GL_COLOR_BUFFER_BIT);
 
         fullscreenShader.use();
-
+        fullscreenShader.setFloat("uTime", static_cast<float>(glfwGetTime()));
         glBindVertexArray(VAO);
         glDrawElements(GL_TRIANGLES, 6, GL_UNSIGNED_INT, 0);
 
