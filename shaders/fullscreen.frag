@@ -43,16 +43,14 @@ void main()
     float emission_strength = 0.12 + 0.34 * pulse;
     float rim_strength = 0.22 + 0.45 * pulse;
     float core_strength = 0.18 + 0.55 * pulse;
-    vec3 background_color = vec3(0.01, 0.015, 0.03);
-
     float t = hit_sphere(ray_origin, ray_dir, sphere_center, sphere_radius);
 
     if (t > 0.0) {
         vec3 hit_point = ray_origin + t * ray_dir;
         vec3 normal = normalize(hit_point - sphere_center);
 
-        float noise_scale = 13.0;
-        float noise_speed = 0.65;
+        float noise_scale = 8.5;
+        float noise_speed = 0.45;
 
         float bands =
             sin(normal.x * noise_scale + u_time * noise_speed) *
@@ -62,18 +60,18 @@ void main()
         bands = bands * 0.5 + 0.5;
 
         float fine_bands =
-            sin((normal.x + normal.y) * noise_scale * 1.8 + u_time * noise_speed * 0.6) *
-            sin((normal.z - normal.y) * noise_scale * 2.2 - u_time * noise_speed * 0.4);
+            sin((normal.x + normal.y) * noise_scale * 1.25 + u_time * noise_speed * 0.6) *
+            sin((normal.z - normal.y) * noise_scale * 1.55 - u_time * noise_speed * 0.4);
 
         fine_bands = fine_bands * 0.5 + 0.5;
 
-        float surface_variation = mix(bands, fine_bands, 0.35);
+        float surface_variation = mix(bands, fine_bands, 0.18);
 
         vec3 cool_color = vec3(0.16, 0.012, 0.004);
         vec3 warm_color = vec3(0.78, 0.10, 0.018);
         vec3 hot_patch_color = vec3(1.0, 0.38, 0.06);
         vec3 turbulent_color = mix(cool_color, warm_color, surface_variation);
-        float hot_mask = smoothstep(0.52, 0.88, surface_variation);
+        float hot_mask = smoothstep(0.46, 0.74, surface_variation);
         turbulent_color = mix(turbulent_color, hot_patch_color, hot_mask);
 
         float rim = 1.0 - max(dot(normal, -ray_dir), 0.0);
@@ -92,5 +90,5 @@ void main()
         return;
     }
 
-    frag_color = vec4(background_color, 1.0);
+    discard;
 }

@@ -14,6 +14,18 @@ The current build renders a red-giant-inspired emissive sphere from a fullscreen
 
 This milestone builds on the orbit camera path: C++ owns camera movement, sends camera uniforms to GLSL, and the fragment shader generates a ray per pixel to test against a 3D object. The visual target is now shifting from a test sphere toward the pre-supernova red supergiant phase.
 
+## Rendering Notes
+
+The spacetime-fabric grid is currently being redesigned. An early prototype rendered the grid inside the fullscreen fragment shader by ray marching against a curved surface and procedurally drawing lines per pixel. That proved the idea, but it caused noisy red/purple/cyan artifacts and broken-looking lines where the grid compressed near the gravity well.
+
+![Shader-raymarched spacetime fabric artifacts](assets/captures/spacetime-fabric-artifact.png)
+
+The next direction is to render the fabric as real OpenGL line geometry instead of as a raymarched shader illusion. The plan is to generate grid vertices in C++, bend those vertices with a simple parabola/gravity-well equation, upload them to a VBO/VAO, and draw them with `GL_LINES`. The red giant can stay ray-rendered in the fullscreen shader while the fabric becomes a separate mesh-rendered object.
+
+The current fix follows that plan: the spacetime fabric is now a separate mesh grid drawn with OpenGL line geometry, while the red giant remains ray-rendered in the fullscreen shader.
+
+![Mesh-rendered spacetime fabric fix](assets/captures/mesh-grid-fabric-fix.png)
+
 ## Milestone Progression
 
 ### 1. Fullscreen Shader Gradient
@@ -35,6 +47,12 @@ This milestone adds a ray-sphere intersection and a C++ orbit camera. The camera
 [Watch the full MP4 demo](assets/captures/red-giant-pulse.mp4)
 
 This milestone starts the visual language for the pre-supernova star. The shader keeps the ray-sphere foundation, then layers in red-orange surface color, time-varying emission, rim glow, and center glow so the object reads more like a hot red giant than a matte test sphere.
+
+### 4. Mesh Spacetime Fabric
+
+![Mesh-rendered spacetime fabric fix](assets/captures/mesh-grid-fabric-fix.png)
+
+This milestone replaces the shader-raymarched grid prototype with real OpenGL line geometry. C++ generates a grid of vertices, bends the grid with a simple gravity-well height function, uploads it to a VBO/VAO, and draws it with `GL_LINES`. The result is a cleaner black-and-white spacetime fabric without the noisy shader-line artifacts.
 
 ## Planned Stack
 

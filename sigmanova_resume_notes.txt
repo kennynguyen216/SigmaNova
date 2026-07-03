@@ -1,0 +1,37 @@
+SigmaNova Resume Notes
+======================
+
+Short Resume Version
+--------------------
+
+SigmaNova | C++, OpenGL, GLSL, CMake
+- Built a real-time supernova visualization prototype using GLFW, GLAD, GLM, OpenGL, and GLSL.
+- Implemented camera-ray rendering in a fullscreen fragment shader to render an emissive red giant sphere with animated surface variation and pulsing glow.
+- Replaced a noisy raymarched spacetime-fabric prototype with mesh-rendered OpenGL line geometry using VBOs, VAOs, custom shaders, and GL_LINES.
+
+Expanded Resume Version
+-----------------------
+
+SigmaNova | C++, OpenGL, GLSL, CMake, GLFW, GLAD, GLM
+- Developed a real-time graphics prototype for a supernova-inspired visualization, combining shader-based ray rendering with mesh-based scene geometry.
+- Implemented an orbit camera in C++ and passed camera position, forward, right, and up vectors into GLSL to generate per-pixel rays in a fullscreen fragment shader.
+- Created a ray-sphere intersection shader for a red-giant-inspired star with emissive coloring, animated pulsing, rim glow, center glow, and procedural surface variation.
+- Built a separate spacetime-fabric grid as real OpenGL line geometry after identifying artifacts caused by a shader-raymarched grid prototype.
+- Generated curved grid vertices in C++, uploaded them with VBO/VAO buffers, and rendered them with GL_LINES using a dedicated grid vertex/fragment shader.
+- Documented the rendering issue, the artifact screenshot, and the mesh-grid solution in the project README.
+
+Current Technical Talking Points
+--------------------------------
+
+- The red giant is still shader-rendered.
+- The spacetime fabric is now mesh-rendered.
+- The project uses two rendering approaches together:
+  - fullscreen fragment shader for ray-based star rendering
+  - real OpenGL geometry for the grid/fabric
+- The raymarched fabric version failed because thin procedural grid lines became unstable near steep/compressed regions.
+- The mesh version fixed the issue because OpenGL now draws actual line geometry instead of pretending the grid exists per pixel.
+
+Possible Interview Explanation
+------------------------------
+
+I originally tried to render the spacetime fabric fully inside the fragment shader by raymarching against a curved surface and procedurally drawing grid lines. It looked interesting, but the grid became noisy and produced red/purple artifacts near the steep gravity-well region. I diagnosed that as an aliasing and representation problem: the shader was pretending the grid was geometry. I switched the fabric to real mesh geometry generated in C++, uploaded it to the GPU with VBOs/VAOs, and rendered it with GL_LINES. The star remains ray-rendered in the fullscreen shader, while the grid is now a separate renderable object.
