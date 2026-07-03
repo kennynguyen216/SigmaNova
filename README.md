@@ -6,9 +6,11 @@ The goal is to start from a clean graphics programming foundation, then build to
 
 ## Current Milestone
 
-![Fullscreen shader gradient milestone](assets/captures/fullscreen-gradient-milestone.png)
+![Orbit camera ray-sphere milestone](assets/captures/orbit-camera-sphere-milestone.png)
 
-The current build renders a fullscreen shader-driven gradient using fragment coordinates, resolution, and time uniforms. This is the first step toward a shader-first volumetric renderer.
+The current build renders a ray-intersected sphere from a fullscreen fragment shader and uses a C++ orbit camera to control the ray origin and camera basis vectors. `A`/`D` orbit around the sphere, `W`/`S` zoom the camera distance, and `Esc` closes the window.
+
+This milestone proves the core renderer path for SigmaNova: C++ owns camera movement, sends camera uniforms to GLSL, and the fragment shader generates a ray per pixel to test against a 3D object. This is the bridge from simple shader gradients toward volumetric raymarching.
 
 ## Planned Stack
 
@@ -57,3 +59,6 @@ Set up the project from scratch and prove the toolchain works:
 - Added a reusable Shader class.
 - Switched from triangle rendering to a fullscreen quad.
 - Added time and resolution uniforms for a fullscreen shader gradient.
+- Added a ray-sphere intersection shader.
+- Added a C++ orbit camera with keyboard controls.
+- Sent camera position and basis vectors into the fragment shader.
