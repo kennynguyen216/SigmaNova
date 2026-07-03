@@ -1,22 +1,22 @@
 #include <glad/glad.h>
 #include <GLFW/glfw3.h>
 
-#include "Shader.h"
+#include "shader.h"
 
 #include <iostream>
 
 namespace {
-constexpr int WindowWidth = 800;
-constexpr int WindowHeight = 600;
+constexpr int window_width = 800;
+constexpr int window_height = 600;
 
-void processInput(GLFWwindow* window)
+void process_input(GLFWwindow* window)
 {
     if (glfwGetKey(window, GLFW_KEY_ESCAPE) == GLFW_PRESS) {
         glfwSetWindowShouldClose(window, true);
     }
 }
 
-void framebufferSizeCallback(GLFWwindow*, int width, int height)
+void framebuffer_size_callback(GLFWwindow*, int width, int height)
 {
     glViewport(0, 0, width, height);
 }
@@ -45,7 +45,7 @@ int main()
     glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 3);
     glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
 
-    GLFWwindow* window = glfwCreateWindow(WindowWidth, WindowHeight, "SigmaNova", nullptr, nullptr);
+    GLFWwindow* window = glfwCreateWindow(window_width, window_height, "SigmaNova", nullptr, nullptr);
     if (window == nullptr) {
         std::cout << "Failed to create GLFW window" << std:: endl;
         glfwTerminate();
@@ -59,49 +59,49 @@ int main()
         return -1;
     }
 
-    unsigned int VBO;
-    unsigned int VAO;
-    unsigned int EBO;
+    unsigned int vbo;
+    unsigned int vao;
+    unsigned int ebo;
 
-    glGenVertexArrays(1, &VAO);
-    glGenBuffers(1, &VBO);
-    glGenBuffers(1, &EBO);
+    glGenVertexArrays(1, &vao);
+    glGenBuffers(1, &vbo);
+    glGenBuffers(1, &ebo);
 
-    glBindVertexArray(VAO);
+    glBindVertexArray(vao);
 
-    glBindBuffer(GL_ARRAY_BUFFER, VBO);
+    glBindBuffer(GL_ARRAY_BUFFER, vbo);
     glBufferData(GL_ARRAY_BUFFER, sizeof(vertices), vertices, GL_STATIC_DRAW);
 
-    glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, EBO);
+    glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, ebo);
     glBufferData(GL_ELEMENT_ARRAY_BUFFER, sizeof(indices), indices, GL_STATIC_DRAW);
 
     glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 3 * sizeof(float), (void*)0);
     glEnableVertexAttribArray(0);
 
-    Shader fullscreenShader("shaders/fullscreen.vert", "shaders/fullscreen.frag");
+    shader fullscreen_shader("shaders/fullscreen.vert", "shaders/fullscreen.frag");
 
-    glfwSetFramebufferSizeCallback(window, framebufferSizeCallback);
+    glfwSetFramebufferSizeCallback(window, framebuffer_size_callback);
 
     while (!glfwWindowShouldClose(window)) {
-        processInput(window);
+        process_input(window);
 
         glClearColor(0.02f, 0.04f, 0.08f, 1.0f);
         glClear(GL_COLOR_BUFFER_BIT);
 
-        fullscreenShader.use();
-        fullscreenShader.setFloat("uTime", static_cast<float>(glfwGetTime()));
-        fullscreenShader.setVec2("uResolution", WindowWidth, WindowHeight);
-        glBindVertexArray(VAO);
+        fullscreen_shader.use();
+        fullscreen_shader.set_float("u_time", static_cast<float>(glfwGetTime()));
+        fullscreen_shader.set_vec2("u_resolution", window_width, window_height);
+        glBindVertexArray(vao);
         glDrawElements(GL_TRIANGLES, 6, GL_UNSIGNED_INT, 0);
 
         glfwSwapBuffers(window);
         glfwPollEvents();
     }
 
-    glDeleteVertexArrays(1, &VAO);
-    glDeleteBuffers(1, &VBO);
-    glDeleteBuffers(1, &EBO);
-    glDeleteProgram(fullscreenShader.ID);
+    glDeleteVertexArrays(1, &vao);
+    glDeleteBuffers(1, &vbo);
+    glDeleteBuffers(1, &ebo);
+    glDeleteProgram(fullscreen_shader.id);
     glfwDestroyWindow(window);
     glfwTerminate();
 
