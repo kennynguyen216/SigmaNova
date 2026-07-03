@@ -3,9 +3,38 @@
 #include <glad/glad.h>
 
 #include <fstream>
+#include <glm/glm.hpp>
 #include <iostream>
 #include <sstream>
-#include <glm/glm.hpp>
+
+shader::shader(const char* vertex_path, const char* fragment_path)
+{
+    std::string vertex_code = read_file(vertex_path);
+    std::string fragment_code = read_file(fragment_path);
+
+    const char* vertex_shader_source = vertex_code.c_str();
+    const char* fragment_shader_source = fragment_code.c_str();
+
+    unsigned int vertex_shader = glCreateShader(GL_VERTEX_SHADER);
+    glShaderSource(vertex_shader, 1, &vertex_shader_source, nullptr);
+    glCompileShader(vertex_shader);
+    check_compile_errors(vertex_shader, "VERTEX");
+
+    unsigned int fragment_shader = glCreateShader(GL_FRAGMENT_SHADER);
+    glShaderSource(fragment_shader, 1, &fragment_shader_source, nullptr);
+    glCompileShader(fragment_shader);
+    check_compile_errors(fragment_shader, "FRAGMENT");
+
+    id = glCreateProgram();
+    glAttachShader(id, vertex_shader);
+    glAttachShader(id, fragment_shader);
+    glLinkProgram(id);
+    check_compile_errors(id, "PROGRAM");
+
+    // once linked into the program, the individual shader objects are no longer needed
+    glDeleteShader(vertex_shader);
+    glDeleteShader(fragment_shader);
+}
 
 void shader::use() const
 {
@@ -22,7 +51,7 @@ void shader::set_vec2(const std::string& name, float x, float y) const
     glUniform2f(glGetUniformLocation(id, name.c_str()), x, y);
 }
 
-void shader::set_vec3(const std::string& name, glm::vec3 value) const 
+void shader::set_vec3(const std::string& name, glm::vec3 value) const
 {
     glUniform3f(glGetUniformLocation(id, name.c_str()), value.x, value.y, value.z);
 }
@@ -64,32 +93,4 @@ void shader::check_compile_errors(unsigned int shader_id, const std::string& typ
                       << info_log << std::endl;
         }
     }
-}
-
-shader::shader(const char* vertex_path, const char* fragment_path)
-{
-    std::string vertex_code = read_file(vertex_path);
-    std::string fragment_code = read_file(fragment_path);
-
-    const char* vertex_shader_source = vertex_code.c_str();
-    const char* fragment_shader_source = fragment_code.c_str();
-
-    unsigned int vertex_shader = glCreateShader(GL_VERTEX_SHADER);
-    glShaderSource(vertex_shader, 1, &vertex_shader_source, nullptr);
-    glCompileShader(vertex_shader);
-    check_compile_errors(vertex_shader, "VERTEX");
-
-    unsigned int fragment_shader = glCreateShader(GL_FRAGMENT_SHADER);
-    glShaderSource(fragment_shader, 1, &fragment_shader_source, nullptr);
-    glCompileShader(fragment_shader);
-    check_compile_errors(fragment_shader, "FRAGMENT");
-
-    id = glCreateProgram();
-    glAttachShader(id, vertex_shader);
-    glAttachShader(id, fragment_shader);
-    glLinkProgram(id);
-    check_compile_errors(id, "PROGRAM");
-
-    glDeleteShader(vertex_shader);
-    glDeleteShader(fragment_shader);
 }

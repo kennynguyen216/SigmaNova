@@ -1,0 +1,7 @@
+# WebKit style matches this project's conventions:
+# 4-space indent, function braces on their own line, attached braces for control flow
+BasedOnStyle: WebKit
+Standard: c++20
+# include order is load-bearing here: glad must come before GLFW,
+# so don't let clang-format sort includes alphabetically
+SortIncludes: Never

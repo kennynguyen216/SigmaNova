@@ -1,7 +1,5 @@
 #version 330 core
 
-
-
 out vec4 frag_color;
 
 uniform float u_time;
@@ -11,9 +9,7 @@ uniform vec3 u_camera_forward;
 uniform vec3 u_camera_right;
 uniform vec3 u_camera_up;
 
-
-// helper function to help with ray sphere initersection 
-
+// ray-sphere intersection: returns the distance along the ray to the nearest hit, or -1.0 on a miss
 float hit_sphere(vec3 ray_origin, vec3 ray_dir, vec3 sphere_center, float sphere_radius)
 {
     vec3 origin_center = sphere_center - ray_origin;
@@ -28,7 +24,6 @@ float hit_sphere(vec3 ray_origin, vec3 ray_dir, vec3 sphere_center, float sphere
 
     return (h - sqrt(discriminant)) / a;
 }
-
 
 void main()
 {

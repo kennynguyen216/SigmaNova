@@ -1,10 +1,9 @@
 #pragma once
 
-#include <string>
 #include <glm/glm.hpp>
+#include <string>
 
-class shader
-{
+class shader {
 public:
     unsigned int id;
 
@@ -15,6 +14,7 @@ public:
     void set_float(const std::string& name, float value) const;
     void set_vec2(const std::string& name, float x, float y) const;
     void set_vec3(const std::string& name, glm::vec3 value) const;
+
 private:
     static std::string read_file(const char* path);
     static void check_compile_errors(unsigned int shader_id, const std::string& type);
