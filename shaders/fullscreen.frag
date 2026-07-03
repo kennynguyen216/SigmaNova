@@ -41,16 +41,33 @@ void main()
     vec3 sphere_center = vec3(0.0, 0.0, 0.0);
     float sphere_radius = 1.0;
 
+    float pulse = sin(u_time * 2.4) * 0.5 + 0.5;
+    pulse = pulse * pulse;
+
+    vec3 surface_color = vec3(0.58, 0.07, 0.015);
+    vec3 hot_color = mix(vec3(0.95, 0.18, 0.035), vec3(1.0, 0.55, 0.10), pulse);
+    float emission_strength = 0.12 + 0.34 * pulse;
+    float rim_strength = 0.22 + 0.45 * pulse;
+    float core_strength = 0.18 + 0.55 * pulse;
     vec3 background_color = vec3(0.01, 0.015, 0.03);
     float t = hit_sphere(ray_origin, ray_dir, sphere_center, sphere_radius);
 
     if (t > 0.0) {
         vec3 hit_point = ray_origin + t * ray_dir;
         vec3 normal = normalize(hit_point - sphere_center);
+        float rim = 1.0 - max(dot(normal, -ray_dir), 0.0);
+        rim = rim * rim;
+        float facing = max(dot(normal, -ray_dir), 0.0);
+        float core_glow = facing * facing;
+        vec3 core_glow_color = hot_color * core_glow * core_strength;
         float light_amount = normal.y * 0.5 + 0.5;
-        vec3 sphere_color = vec3(1.0, 0.45, 0.1) * light_amount;
+        vec3 surface = surface_color * light_amount;
+        vec3 emission = hot_color * emission_strength;
+        vec3 rim_glow = hot_color * rim * rim_strength;
 
-        frag_color = vec4(sphere_color, 1.0);
+        vec3 final_color = surface + emission + rim_glow + core_glow_color;
+        frag_color = vec4(final_color, 1.0);
+
         return;
     }
 

@@ -6,11 +6,11 @@ The goal is to start from a clean graphics programming foundation, then build to
 
 ## Current Milestone
 
-![Orbit camera ray-sphere milestone](assets/captures/orbit-camera-sphere-milestone.png)
+[Red giant pulse demo](assets/captures/red-giant-pulse.mp4)
 
-The current build renders a ray-intersected sphere from a fullscreen fragment shader and uses a C++ orbit camera to control the ray origin and camera basis vectors. `A`/`D` orbit around the sphere, `W`/`S` zoom the camera distance, and `Esc` closes the window.
+The current build renders a red-giant-inspired emissive sphere from a fullscreen fragment shader. The sphere is ray-intersected per pixel, shaded with a surface normal, and enhanced with emissive color, rim glow, center glow, and a time-based pulse.
 
-This milestone proves the core renderer path for SigmaNova: C++ owns camera movement, sends camera uniforms to GLSL, and the fragment shader generates a ray per pixel to test against a 3D object. This is the bridge from simple shader gradients toward volumetric raymarching.
+This milestone builds on the orbit camera path: C++ owns camera movement, sends camera uniforms to GLSL, and the fragment shader generates a ray per pixel to test against a 3D object. The visual target is now shifting from a test sphere toward the pre-supernova red supergiant phase.
 
 ## Milestone Progression
 
@@ -25,6 +25,12 @@ This milestone proved that the renderer could use a fullscreen quad as a shader 
 ![Orbit camera ray-sphere milestone](assets/captures/orbit-camera-sphere-milestone.png)
 
 This milestone adds a ray-sphere intersection and a C++ orbit camera. The camera sends position, forward, right, and up vectors into GLSL, letting the fragment shader generate camera-controlled rays for each pixel.
+
+### 3. Red Giant Pulse
+
+[Watch the red giant pulse demo](assets/captures/red-giant-pulse.mp4)
+
+This milestone starts the visual language for the pre-supernova star. The shader keeps the ray-sphere foundation, then layers in red-orange surface color, time-varying emission, rim glow, and center glow so the object reads more like a hot red giant than a matte test sphere.
 
 ## Planned Stack
 
@@ -76,3 +82,4 @@ Set up the project from scratch and prove the toolchain works:
 - Added a ray-sphere intersection shader.
 - Added a C++ orbit camera with keyboard controls.
 - Sent camera position and basis vectors into the fragment shader.
+- Tuned the ray-rendered sphere into a red-giant-inspired emissive pulse.
