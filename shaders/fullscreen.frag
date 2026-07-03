@@ -5,6 +5,7 @@
 // decalres final color output from fragment
 out vec4 FragColor;
 uniform float uTime;
+uniform vec2 uResolution;
 
 
 
@@ -14,6 +15,7 @@ void main() {
     //FragColor = vertexColor;
     
     float pulse = sin(uTime) *0.5 +0.5;
-    FragColor = vec4(pulse, 0.4, 0.9, 1.0);
+    vec2 uv = gl_FragCoord.xy / uResolution;
+    FragColor = vec4(uv.x, uv.y, pulse, 1.0);
 
 }

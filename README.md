@@ -4,6 +4,12 @@ SigmaNova is a C++/OpenGL project for building a real-time supernova visualizati
 
 The goal is to start from a clean graphics programming foundation, then build toward an interactive volumetric renderer that can show a glowing, expanding supernova-like cloud.
 
+## Current Milestone
+
+![Fullscreen shader gradient milestone](assets/captures/fullscreen-gradient-milestone.png)
+
+The current build renders a fullscreen shader-driven gradient using fragment coordinates, resolution, and time uniforms. This is the first step toward a shader-first volumetric renderer.
+
 ## Planned Stack
 
 - C++
@@ -45,3 +51,9 @@ Set up the project from scratch and prove the toolchain works:
 - Cleaned up early project code and spacing.
 - Added indexed rectangle rendering with an EBO.
 - Added a uniform-driven shader color so the shape pulses green over time.
+
+### 2026-07-02
+
+- Added a reusable Shader class.
+- Switched from triangle rendering to a fullscreen quad.
+- Added time and resolution uniforms for a fullscreen shader gradient.
