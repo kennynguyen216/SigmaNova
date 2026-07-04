@@ -13,6 +13,13 @@
 namespace {
 constexpr int window_width = 800;
 constexpr int window_height = 600;
+constexpr float camera_fov_degrees = 55.0f;
+
+camera* active_camera = nullptr;
+bool first_mouse = true;
+bool mouse_dragging = false;
+float last_mouse_x = static_cast<float>(window_width) * 0.5f;
+float last_mouse_y = static_cast<float>(window_height) * 0.5f;
 
 void process_input(GLFWwindow* window)
 {
@@ -24,6 +31,44 @@ void process_input(GLFWwindow* window)
 void framebuffer_size_callback(GLFWwindow*, int width, int height)
 {
     glViewport(0, 0, width, height);
+}
+
+void mouse_callback(GLFWwindow*, double x_pos, double y_pos)
+{
+    float mouse_x = static_cast<float>(x_pos);
+    float mouse_y = static_cast<float>(y_pos);
+
+    if (first_mouse) {
+        last_mouse_x = mouse_x;
+        last_mouse_y = mouse_y;
+        first_mouse = false;
+    }
+
+    float x_offset = mouse_x - last_mouse_x;
+    float y_offset = last_mouse_y - mouse_y;
+
+    last_mouse_x = mouse_x;
+    last_mouse_y = mouse_y;
+
+    if (mouse_dragging && active_camera != nullptr) {
+        active_camera->process_mouse(x_offset, y_offset);
+    }
+}
+
+void mouse_button_callback(GLFWwindow*, int button, int action, int)
+{
+    if (button != GLFW_MOUSE_BUTTON_LEFT && button != GLFW_MOUSE_BUTTON_RIGHT) {
+        return;
+    }
+
+    if (action == GLFW_PRESS) {
+        mouse_dragging = true;
+        first_mouse = true;
+    }
+
+    if (action == GLFW_RELEASE) {
+        mouse_dragging = false;
+    }
 }
 
 float fabric_height(float x, float z)
@@ -142,6 +187,9 @@ int main()
     glfwSetFramebufferSizeCallback(window, framebuffer_size_callback);
 
     camera scene_camera;
+    active_camera = &scene_camera;
+    glfwSetCursorPosCallback(window, mouse_callback);
+    glfwSetMouseButtonCallback(window, mouse_button_callback);
 
     float last_frame_time = static_cast<float>(glfwGetTime());
 
@@ -166,7 +214,7 @@ int main()
 
         grid_shader.use();
         glm::mat4 view = glm::lookAt(scene_camera.position(), scene_camera.position() + scene_camera.forward(), scene_camera.up());
-        glm::mat4 projection = glm::perspective(glm::radians(55.0f), static_cast<float>(framebuffer_width) / static_cast<float>(framebuffer_height), 0.1f, 100.0f);
+        glm::mat4 projection = glm::perspective(glm::radians(camera_fov_degrees), static_cast<float>(framebuffer_width) / static_cast<float>(framebuffer_height), 0.1f, 100.0f);
         grid_shader.set_mat4("u_view", view);
         grid_shader.set_mat4("u_projection", projection);
         grid_shader.set_vec3("u_color", glm::vec3(0.82f));
@@ -180,6 +228,7 @@ int main()
 
         fullscreen_shader.use();
         fullscreen_shader.set_float("u_time", current_time);
+        fullscreen_shader.set_float("u_fov_y", glm::radians(camera_fov_degrees));
         fullscreen_shader.set_vec2("u_resolution", static_cast<float>(framebuffer_width), static_cast<float>(framebuffer_height));
         fullscreen_shader.set_vec3("u_camera_pos", scene_camera.position());
         fullscreen_shader.set_vec3("u_camera_forward", scene_camera.forward());

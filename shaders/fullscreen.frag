@@ -3,6 +3,7 @@
 out vec4 frag_color;
 
 uniform float u_time;
+uniform float u_fov_y;
 uniform vec2 u_resolution;
 uniform vec3 u_camera_pos;
 uniform vec3 u_camera_forward;
@@ -105,6 +106,7 @@ void main()
     vec2 uv = gl_FragCoord.xy / u_resolution;
     vec2 centered = uv * 2.0 - 1.0;
     centered.x *= u_resolution.x / u_resolution.y;
+    centered *= tan(u_fov_y * 0.5);
 
     vec3 ray_origin = u_camera_pos;
     vec3 ray_dir = normalize(u_camera_forward + centered.x * u_camera_right + centered.y * u_camera_up);
