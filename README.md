@@ -14,13 +14,11 @@ This milestone builds on the orbit camera path: C++ owns camera movement, sends 
 
 ## Rendering Notes
 
-The spacetime-fabric grid is currently being redesigned. An early prototype rendered the grid inside the fullscreen fragment shader by ray marching against a curved surface and procedurally drawing lines per pixel. That proved the idea, but it caused noisy red/purple/cyan artifacts and broken-looking lines where the grid compressed near the gravity well.
+The spacetime-fabric grid started as a fullscreen fragment-shader experiment. The early prototype ray marched against a curved surface and procedurally drew grid lines per pixel. That proved the idea, but it caused aliasing: where the grid compressed near the gravity well, thin procedural lines could fall between pixel samples, creating noisy red/purple/cyan artifacts and broken-looking line segments.
 
 ![Shader-raymarched spacetime fabric artifacts](assets/captures/spacetime-fabric-artifact.png)
 
-The next direction is to render the fabric as real OpenGL line geometry instead of as a raymarched shader illusion. The plan is to generate grid vertices in C++, bend those vertices with a simple parabola/gravity-well equation, upload them to a VBO/VAO, and draw them with `GL_LINES`. The red giant can stay ray-rendered in the fullscreen shader while the fabric becomes a separate mesh-rendered object.
-
-The current fix follows that plan: the spacetime fabric is now a separate mesh grid drawn with OpenGL line geometry, while the red giant remains ray-rendered in the fullscreen shader.
+The fix is to render the fabric as real OpenGL line geometry instead of as a raymarched shader illusion. C++ now generates grid vertices, bends those vertices with a simple gravity-well equation, uploads them to a VBO/VAO, and draws them with `GL_LINES`. The red giant remains ray-rendered in the fullscreen shader while the fabric is a separate mesh-rendered object.
 
 ![Mesh-rendered spacetime fabric fix](assets/captures/mesh-grid-fabric-fix.png)
 
@@ -123,3 +121,16 @@ Set up the project from scratch and prove the toolchain works:
 - Added a C++ orbit camera with keyboard controls.
 - Sent camera position and basis vectors into the fragment shader.
 - Tuned the ray-rendered sphere into a red-giant-inspired emissive pulse.
+
+### 2026-07-03
+
+- Replaced the shader-raymarched spacetime fabric prototype with mesh-rendered `GL_LINES` geometry.
+- Added a separate grid shader path for the fabric while keeping the star in the fullscreen ray shader.
+- Hand-derived and documented the ray-sphere math used for entry/exit bounds.
+- Moved the star from one-hit ray-sphere surface shading to volumetric raymarching.
+- Added `sample_density` as the bridge between the renderer and future simulation-backed gas fields.
+- Replaced sine-band surface patterns with value-noise/FBM-style procedural gas.
+- Added density-driven temperature color: dark red gas, orange mid-density, and hot yellow-white core.
+- Fixed the corona/black-ring issue by lifting edge density and matching inner/outer glow behavior.
+- Added additive blending so the star and corona add light over the spacetime fabric instead of painting dark pixels over it.
+- Added milestone captures for the mesh fabric, ray-sphere notes, and volumetric gas progress.
