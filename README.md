@@ -69,7 +69,24 @@ The gas texture is moving from simple sine-band modulation toward value-noise/FB
 Reference used for this direction:
 
 - [The Book of Shaders: Noise](https://thebookofshaders.com/11/) - explains random functions, value noise, smooth interpolation, and how noise can create organic shader patterns.
-
+My explanation on the pseudo-random noise.
+ Ok so imagine we have a cube. This cube has 8 corners. Assign a random value at each of the 8 corners. Then interpolate (find a value between these two values) using a percentage (which is based off a sample point inside the cube, and based on how far along to sample point is in the cube (if its 30% across the cube in x axis (local.x = .3), or more than halfway up in the y axis like 60% (local.y = .6), etc)), these local values we use for interpolation percentages we use mix() and then smooth it out for smoother transitions.
+    - Local tells you where you are inside the cube. You can use local as a mix percentage but that makes the transition between neighboring cells change direction to sharply at cube boundaries. This can create faint grid like creases.
+        - we do local = local * local * (3.0 - 2.0 * local)
+            - this equation is a hermite fade or smoothstep
+            - smooths interpolation weights before mxing which flattnes the slope at cell boundaries so the value noise does not show hard gride like creases
+        - Fractal brownian motion (fbm) layers these noise patterns on top of eachother, each layer being an octave
+            - Layer 1: lower freq high amp
+                - Big soft blobs
+            - layer 2: higher freq smaller amp
+                - medium details
+            - layer 3: even higher freq and even lower amp
+                - smaller detais
+        - Higher frequencies make smaller more detailed shapes.
+            - Higher frequencies means the noise changes more often in the same space so the blobs/features get tighter and smaller
+        - Amplitude is how much that noise layer changes the final result
+            - High amps means the layer is visually evident by alot
+            - lower amps means it adds a subtle texture 
 ## Planned Stack
 
 - C++
