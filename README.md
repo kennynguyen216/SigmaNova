@@ -6,13 +6,11 @@ The goal is to start from a clean graphics programming foundation, then build to
 
 ## Current Milestone
 
-![Red giant pulse demo](assets/captures/red-giant-pulse.gif)
+![Volumetric gas demo](assets/captures/volumetric-gas-demo.gif)
 
-[Full MP4 demo](assets/captures/red-giant-pulse.mp4)
+The current build renders a red-giant-inspired volumetric gas sphere above a mesh-rendered spacetime fabric. The fullscreen fragment shader computes camera rays, finds sphere entry/exit bounds, raymarches through the volume, samples turbulent density, maps density to hot gas color, and blends a soft corona over the grid.
 
-The current build renders a red-giant-inspired emissive sphere from a fullscreen fragment shader. The sphere is ray-intersected per pixel, shaded with a surface normal, and enhanced with emissive color, rim glow, center glow, and a time-based pulse.
-
-This milestone builds on the orbit camera path: C++ owns camera movement, sends camera uniforms to GLSL, and the fragment shader generates a ray per pixel to test against a 3D object. The visual target is now shifting from a test sphere toward the pre-supernova red supergiant phase.
+This milestone builds on the orbit camera path: C++ owns camera movement, sends camera uniforms to GLSL, and the fragment shader generates a ray per pixel. The visual target is now shifting from a surface test sphere toward a gaseous pre-supernova red supergiant.
 
 ## Rendering Notes
 
@@ -61,6 +59,18 @@ This milestone starts the visual language for the pre-supernova star. The shader
 ![Mesh-rendered spacetime fabric fix](assets/captures/mesh-grid-fabric-fix.png)
 
 This milestone replaces the shader-raymarched grid prototype with real OpenGL line geometry. C++ generates a grid of vertices, bends the grid with a simple gravity-well height function, uploads it to a VBO/VAO, and draws it with `GL_LINES`. The result is a cleaner black-and-white spacetime fabric without the noisy shader-line artifacts.
+
+### 5. Volumetric Gas And Procedural Noise
+
+![Volumetric gas demo](assets/captures/volumetric-gas-demo.gif)
+
+This milestone moves the red giant from a surface-shaded sphere toward a volumetric gas object. The fragment shader computes sphere entry/exit bounds, marches through the volume, samples density along the ray, and accumulates emissive gas color. Density is now separated into a `sample_density` function so the current procedural shader field can later be replaced by a C++/texture-backed simulation field.
+
+The gas texture is moving from simple sine-band modulation toward value-noise/FBM-style procedural noise. The goal is to replace visible sine spokes with more organic plasma-like clumps.
+
+Reference used for this direction:
+
+- [The Book of Shaders: Noise](https://thebookofshaders.com/11/) - explains random functions, value noise, smooth interpolation, and how noise can create organic shader patterns.
 
 ## Planned Stack
 

@@ -9,8 +9,7 @@ uniform vec3 u_camera_forward;
 uniform vec3 u_camera_right;
 uniform vec3 u_camera_up;
 
-// ray-sphere intersection: returns the distance along the ray to the nearest hit, or -1.0 on a miss
-// need to update to return both the entry and the exit
+// Returns the ray's entry and exit distances through a sphere, or (-1, -1) on a miss.
 vec2 hit_sphere_bounds(vec3 ray_origin, vec3 ray_dir, vec3 sphere_center, float sphere_radius)
 {
     vec3 origin_center = sphere_center - ray_origin;
@@ -29,18 +28,57 @@ vec2 hit_sphere_bounds(vec3 ray_origin, vec3 ray_dir, vec3 sphere_center, float 
     return vec2(t_entry, t_exit); // x is the entry y is exit
    
 }
-//make some noise
-float gas_noise(vec3 p){
-    float noise_scale = 11.0;
-    float noise_speed = 0.45;
-    float bands =
-            sin(p.x * noise_scale + u_time * noise_speed) *
-            sin(p.y * noise_scale * 1.37 - u_time * noise_speed * 0.8) *
-            sin(p.z * noise_scale * 1.91 + u_time * noise_speed * 0.55);
-    return bands * 0.5 + 0.5;
+// Takes a 3D coordinate and turns it into a pseudo-random number.
+float hash(vec3 p)
+{
+    return fract(sin(dot(p, vec3(127.1, 311.7, 74.7))) * 43758.5453);
+}
+// Smooths random lattice values into continuous value noise.
+float value_noise(vec3 p)
+{
+    // Which grid cube am I in?
+    vec3 cell = floor(p);
+    // Where am I inside that cube?
+    vec3 local = fract(p);
+    // Makes transitions less harsh.
+    local = local * local * (3.0 - 2.0 * local);
+    // A cube has 8 corners.
+    float c000 = hash(cell + vec3(0.0, 0.0, 0.0)); // corner at x0, y0, z0
+    float c100 = hash(cell + vec3(1.0, 0.0, 0.0)); // etc
+    float c010 = hash(cell + vec3(0.0, 1.0, 0.0));
+    float c110 = hash(cell + vec3(1.0, 1.0, 0.0));
+    float c001 = hash(cell + vec3(0.0, 0.0, 1.0));
+    float c101 = hash(cell + vec3(1.0, 0.0, 1.0));
+    float c011 = hash(cell + vec3(0.0, 1.0, 1.0));
+    float c111 = hash(cell + vec3(1.0, 1.0, 1.0));
+    // Blend along x, then y, then z.
+    float x00 = mix(c000, c100, local.x);
+    float x10 = mix(c010, c110, local.x);
+    float x01 = mix(c001, c101, local.x);
+    float x11 = mix(c011, c111, local.x);
+    float y0 = mix(x00, x10, local.y);
+    float y1 = mix(x01, x11, local.y);
+    // One smooth random value for point p.
+    return mix(y0, y1, local.z);
+}
+// Moves the sampling point over time and layers value noise into FBM-style gas.
+float gas_noise(vec3 p)
+{
+    vec3 animated_p = p + vec3(0.0, u_time * 0.12, -u_time * 0.08);
+    float noise = 0.0;
+    float amplitude = 0.5;
+    float frequency = 3.0;
+
+    for (int i = 0; i < 4; ++i) {
+        noise += value_noise(animated_p * frequency) * amplitude;
+        frequency *= 2.0;
+        amplitude *= 0.5;
+    }
+
+    return clamp(noise, 0.0, 1.0);
 }
 
-//helper function to sample density
+// Samples the current procedural density field. Later this can be swapped for texture-backed simulation data.
 float sample_density(vec3 p, vec3 sphere_center, float sphere_radius) {
     float distance_center = length(p - sphere_center);
     float radial = clamp(1.0 - (distance_center / sphere_radius), 0.0, 1.0);
@@ -53,7 +91,7 @@ float sample_density(vec3 p, vec3 sphere_center, float sphere_radius) {
     return clamp(turbulent_density, 0.0, 1.0);
 }
 
-//how close does the ray pass to the center
+// How close does the ray pass to the center?
 float ray_sphere_near_distance(vec3 ray_origin, vec3 ray_dir, vec3 sphere_center){
     vec3 origin_center = sphere_center - ray_origin; // vector from camera to sphere_center
     float closest_t = dot(origin_center, ray_dir);
@@ -83,7 +121,7 @@ void main()
         while (t < t_end) {
             vec3 sample_point = ray_origin + t * ray_dir;
             float density  = sample_density(sample_point, sphere_center, sphere_radius);
-            // different temps = different desn 
+            // Higher density maps to hotter gas colors.
             vec3 cool_gas = vec3(0.45, 0.02, 0.00);
             vec3 warm_gas = vec3(0.95, 0.35, 0.00);
             vec3 hot_gas = vec3(1.00, 0.92, 0.75);
