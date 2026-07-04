@@ -6,11 +6,11 @@ The goal is to start from a clean graphics programming foundation, then build to
 
 ## Current Milestone
 
-![Volumetric gas demo](assets/captures/volumetric-gas-demo.gif)
+![Dissolved volumetric gas milestone](assets/captures/dissolved-volumetric-gas.png)
 
-The current build renders a red-giant-inspired volumetric gas sphere above a mesh-rendered spacetime fabric. The fullscreen fragment shader computes camera rays, finds sphere entry/exit bounds, raymarches through the volume, samples turbulent density, maps density to hot gas color, and blends a soft corona over the grid.
+The current build renders a red-giant-inspired volumetric gas cloud above a mesh-rendered spacetime fabric. The fullscreen fragment shader computes camera rays, finds entry/exit bounds through an enlarged gas volume, raymarches through procedural density, applies emission and absorption/transmittance, tone maps the result, and blends a soft halo over the grid.
 
-This milestone builds on the orbit camera path: C++ owns camera movement, sends camera uniforms to GLSL, and the fragment shader generates a ray per pixel. The visual target is now shifting from a surface test sphere toward a gaseous pre-supernova red supergiant.
+This milestone moves the star away from a clean mathematical sphere edge. The gas boundary now dissolves through a noise-warped density field, so the silhouette reads more like billowing plasma than a shaded ball.
 
 ## Rendering Notes
 
@@ -87,6 +87,33 @@ My explanation on the pseudo-random noise.
         - Amplitude is how much that noise layer changes the final result
             - High amps means the layer is visually evident by alot
             - lower amps means it adds a subtle texture 
+
+### 6. Emission, Absorption, And Dissolved Gas Edge
+
+![Dissolved volumetric gas milestone](assets/captures/dissolved-volumetric-gas.png)
+
+This milestone finishes the core Chapter 5 volumetric look. The shader now accumulates emitted light through the gas while tracking transmittance, so dense gas can attenuate light behind it instead of every sample simply adding brightness. A simple tone-mapping step keeps the bright core readable instead of clipping immediately to flat white.
+
+The clean sphere silhouette was replaced with a dissolved gas boundary. The raymarch uses a larger bounding sphere, but the density field decides where the star visually ends. Low-frequency noise warps the effective radius so tongues of gas can push past the nominal surface, and the old analytic rim/collar ring was replaced by a softer halo that blends through the remaining transmittance.
+
+Current Chapter 5 status:
+
+- Emission: working
+- Absorption/transmittance: working
+- Tone mapping: working
+- Procedural gas density: working
+- Dissolved noisy silhouette: working
+- Next visual target: chunkier animated red-supergiant convection cells
+
+## Next Up
+
+Chapter 6 is focused on animated fields and live tuning. The next work should make the gas motion feel intentional instead of hardcoded:
+
+- expose noise speed, scale, turbulence strength, absorption strength, and emission strength as uniforms
+- add keyboard controls or debug constants for quick tuning
+- push the gas toward large red-supergiant convection cells: dark red lanes, orange body, and yellow-hot patches
+- capture a fresh GIF once the motion reads well
+
 ## Planned Stack
 
 - C++
@@ -151,3 +178,14 @@ Set up the project from scratch and prove the toolchain works:
 - Fixed the corona/black-ring issue by lifting edge density and matching inner/outer glow behavior.
 - Added additive blending so the star and corona add light over the spacetime fabric instead of painting dark pixels over it.
 - Added milestone captures for the mesh fabric, ray-sphere notes, and volumetric gas progress.
+
+### 2026-07-04
+
+- Added free-camera navigation with WASD movement, vertical movement, mouse drag-look, and arrow-key look controls.
+- Matched the fullscreen raymarch camera FOV to the mesh grid projection so the star and fabric sit in the same visual camera space.
+- Added absorption/transmittance to the volumetric raymarch so dense gas attenuates light behind it.
+- Added tone mapping to keep the bright core readable.
+- Enlarged the gas march bounds and moved the visible edge into the density field instead of the hit sphere itself.
+- Noise-warped the effective gas radius to dissolve the clean circular silhouette into a billowing plasma edge.
+- Replaced the hard rim/collar look with a softer transmittance-aware halo.
+- Captured the dissolved volumetric gas milestone image.

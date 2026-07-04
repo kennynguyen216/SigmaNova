@@ -65,30 +65,50 @@ float value_noise(vec3 p)
 // Moves the sampling point over time and layers value noise into FBM-style gas.
 float gas_noise(vec3 p)
 {
-    vec3 animated_p = p + vec3(0.0, u_time * 0.12, -u_time * 0.08);
+    // Roughly half the original scroll speed: fast motion reads as smoke,
+    // near-frozen motion reads as a still image.
+    vec3 animated_p = p + vec3(sin(u_time * 0.18) * 0.22, u_time * 0.16, -u_time * 0.11);
+    vec3 warp = vec3(
+        value_noise(animated_p * 2.1 + vec3(5.2, 1.3, 0.7)),
+        value_noise(animated_p * 2.1 + vec3(8.4, 2.8, 4.1)),
+        value_noise(animated_p * 2.1 + vec3(1.9, 7.3, 6.6))) - vec3(0.5);
+    animated_p += warp * 0.55;
+
     float noise = 0.0;
     float amplitude = 0.5;
-    float frequency = 3.0;
+    float frequency = 2.2;
 
-    for (int i = 0; i < 4; ++i) {
+    for (int i = 0; i < 5; ++i) {
         noise += value_noise(animated_p * frequency) * amplitude;
         frequency *= 2.0;
         amplitude *= 0.5;
     }
 
-    return clamp(noise, 0.0, 1.0);
+    return clamp(noise * 1.15, 0.0, 1.0);
 }
 
 // Samples the current procedural density field. Later this can be swapped for texture-backed simulation data.
 float sample_density(vec3 p, vec3 sphere_center, float sphere_radius) {
     float distance_center = length(p - sphere_center);
-    float radial = clamp(1.0 - (distance_center / sphere_radius), 0.0, 1.0);
+    // Low-frequency noise offsets the effective surface radius per direction, so the
+    // silhouette is lumpy instead of a perfect circle and gas can push past the
+    // nominal radius. This is what dissolves the "drawn ring" edge into wispy gas.
+    float surface_noise = gas_noise(p * 1.3 + vec3(17.0, 3.0, 11.0));
+    float effective_radius = sphere_radius * (0.9 + 0.45 * surface_noise);
+    float radial = clamp(1.0 - (distance_center / effective_radius), 0.0, 1.0);
     // sqrt lifts density near the surface so grazing rays still pick up glow;
     // linear falloff left the outer shell nearly empty and it rendered as a black ring
     float radial_density = sqrt(radial);
-    float noise = gas_noise(p);
-    // noise floor of 0.55 keeps low-noise pockets as dim gas instead of black voids
-    float turbulent_density = radial_density * mix(0.55, 1.45, noise);
+    // Two scales of convection: a few giant cells across the volume
+    // with fine granulation layered on top.
+    float cells = gas_noise(p * 0.55);
+    float detail = gas_noise(p * 2.6 + vec3(9.2, 4.7, 1.3));
+    float noise = cells * 0.62 + detail * 0.38;
+    // Contrast curve carves the noise into distinct bright pockets and dark lanes
+    // instead of one smooth gradient, so the core reads as turbulent plasma.
+    noise = pow(noise, 1.5);
+    // The wider noise range deepens the dark lanes between hot clumps.
+    float turbulent_density = radial_density * mix(0.12, 1.95, noise);
     return clamp(turbulent_density, 0.0, 1.0);
 }
 
@@ -111,51 +131,63 @@ void main()
     vec3 ray_origin = u_camera_pos;
     vec3 ray_dir = normalize(u_camera_forward + centered.x * u_camera_right + centered.y * u_camera_up);
     vec3 sphere_center = vec3(0.0, 0.0, 0.0);
-    float sphere_radius = 1.0;
-    vec2 bounds = hit_sphere_bounds(ray_origin, ray_dir, sphere_center, sphere_radius);
+    float sphere_radius = 1.0;   // nominal radius the density field fades out around
+    float march_radius = 1.4;    // enlarged bound so wispy gas can extend past the surface
+    vec2 bounds = hit_sphere_bounds(ray_origin, ray_dir, sphere_center, march_radius);
+
+    // Wide soft halo, keyed loosely to the nominal radius so there is no hard ring
+    // at exactly R. This is the only "atmosphere" term left now that the rim/collar
+    // are gone; the volume itself supplies the disk edge.
+    float near_distance = ray_sphere_near_distance(ray_origin, ray_dir, sphere_center);
+    float halo = 1.0 - smoothstep(sphere_radius * 0.85, sphere_radius * 2.1, near_distance);
+    halo = pow(halo, 2.0);
+    vec3 halo_color = vec3(0.9, 0.16, 0.03) * halo * 0.5;
+
+    vec3 accumulated_color = vec3(0.0);
+    float transmittance = 1.0;
 
     if (bounds.y > 0.0) {
         float t = max(bounds.x, 0.0); // start marching at entry point unless behind camera
         float t_end = bounds.y;
         float step_size = 0.03;
-        vec3 accumulated_color = vec3(0.0);
+        // Higher absorption lets front clumps shadow the interior, so the core
+        // shows turbulent depth instead of one evenly-lit patch.
+        float absorption_strength = 0.7;
+        float emission_strength = 6.0;
 
         while (t < t_end) {
             vec3 sample_point = ray_origin + t * ray_dir;
             float density  = sample_density(sample_point, sphere_center, sphere_radius);
-            // Higher density maps to hotter gas colors.
+            // Higher density maps to hotter gas colors without washing the core
+            // into a flat white blob.
             vec3 cool_gas = vec3(0.45, 0.02, 0.00);
             vec3 warm_gas = vec3(0.95, 0.35, 0.00);
-            vec3 hot_gas = vec3(1.00, 0.92, 0.75);
+            vec3 hot_gas = vec3(1.00, 0.82, 0.32);
             vec3 gas_color = mix(cool_gas, warm_gas, density);
-            float hot_mask = smoothstep(0.55, 1.0, density);
+            // High threshold keeps the hot core small and lets turbulence survive.
+            float hot_mask = smoothstep(0.83, 1.0, density);
             gas_color = mix(gas_color, hot_gas, hot_mask);
-
-            accumulated_color += gas_color * density * step_size * 2.0;
+            vec3 emission = gas_color * density * emission_strength;
+            float absorption =  density * absorption_strength;
+            accumulated_color += transmittance * emission * step_size;
+            transmittance *= exp(-absorption * step_size);
+            if (transmittance < 0.01) {
+                break;
+            }
             t += step_size;
         }
-        // inner rim: ramps up toward the silhouette with the same color and strength the
-        // outer corona has there, so the glow is continuous across the sphere edge
-        float near_distance = ray_sphere_near_distance(ray_origin, ray_dir, sphere_center);
-        float inner_rim = smoothstep(sphere_radius * 0.55, sphere_radius, near_distance);
-        inner_rim = inner_rim * inner_rim;
-        accumulated_color += vec3(1.0, 0.22, 0.04) * inner_rim * 0.45;
-
-        frag_color = vec4(accumulated_color, 1.0);
-
-        return;
     }
 
-    // outer corona: starts at full strength on the silhouette (matching the inner rim)
-    // and fades out by 1.9 radii
-    float near_distance = ray_sphere_near_distance(ray_origin, ray_dir, sphere_center);
-    float corona = 1.0 - smoothstep(sphere_radius, sphere_radius * 1.9, near_distance);
-    corona = corona * corona;
-    if (corona > 0.001) {
-        vec3 corona_color = vec3(1.0, 0.22, 0.04) * corona * 0.45;
-        frag_color = vec4(corona_color, 1.0);
-        return;
+    // The halo fills in behind the gas: where the star is opaque it is occluded
+    // (transmittance ~ 0), and at the wispy edge it shows through and blends, so the
+    // silhouette dissolves into glow instead of ending at a drawn ring.
+    accumulated_color += halo_color * transmittance;
+
+    float luminance = max(accumulated_color.r, max(accumulated_color.g, accumulated_color.b));
+    if (luminance < 0.002) {
+        discard; // nothing here — let the grid and background show through
     }
 
-    discard;
+    accumulated_color = accumulated_color / (accumulated_color + vec3(1.0));
+    frag_color = vec4(accumulated_color, 1.0);
 }
