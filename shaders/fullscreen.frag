@@ -29,6 +29,28 @@ vec2 hit_sphere_bounds(vec3 ray_origin, vec3 ray_dir, vec3 sphere_center, float 
     return vec2(t_entry, t_exit); // x is the entry y is exit
    
 }
+//make some noise
+float gas_noise(vec3 p){
+    float noise_scale = 11.0;
+    float noise_speed = 0.45;
+    float bands =
+            sin(p.x * noise_scale + u_time * noise_speed) *
+            sin(p.y * noise_scale * 1.37 - u_time * noise_speed * 0.8) *
+            sin(p.z * noise_scale * 1.91 + u_time * noise_speed * 0.55);
+    return bands * 0.5 + 0.5;
+}
+
+
+//helper function to sample density 
+float sample_density(vec3 p, vec3 sphere_center, float sphere_radius) {
+    float distance_center = length(p - sphere_center);
+    float radial_density = 1.0 - (distance_center / sphere_radius);
+    radial_density = max(radial_density, 0.0);
+    float noise = gas_noise(p);
+    float turbulent_density = radial_density * mix(0.2, 1.65, noise);
+    turbulent_density = smoothstep(0.02, 1.0, turbulent_density);
+    return turbulent_density;
+}
 
 void main()
 {
@@ -50,10 +72,16 @@ void main()
 
         while (t < t_end) {
             vec3 sample_point = ray_origin + t * ray_dir;
-            float distance_center = length(sample_point - sphere_center);
-            float density = 1.0 - (distance_center / sphere_radius);
-            density = max(density, 0.0);
-            accumulated_color += vec3(1.0, .25, .05) * density * step_size *2.0;
+            float density  = sample_density(sample_point, sphere_center, sphere_radius);
+            // different temps = different desn 
+            vec3 cool_gas = vec3(0.45, 0.02, 0.00);
+            vec3 warm_gas = vec3(0.95, 0.35, 0.00);
+            vec3 hot_gas = vec3(1.00, 0.92, 0.75);
+            vec3 gas_color = mix(cool_gas, warm_gas, density);
+            float hot_mask = smoothstep(0.55, 1.0, density);
+            gas_color = mix(gas_color, hot_gas, hot_mask);
+
+            accumulated_color += gas_color * density * step_size * 2.0;
             t += step_size;
         }
 
