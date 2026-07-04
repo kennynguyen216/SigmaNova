@@ -7,6 +7,7 @@
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
 #include <cmath>
+#include <cstdio>
 #include <iostream>
 #include <vector>
 
@@ -142,6 +143,9 @@ int main()
     }
 
     glfwMakeContextCurrent(window);
+    // Uncapped frame rate so the title-bar ms/frame readout reflects real shader
+    // cost. Set to 1 to re-enable vsync once perf work is done.
+    glfwSwapInterval(0);
 
     if (!gladLoadGLLoader((GLADloadproc)glfwGetProcAddress)) {
         std::cout << "Failed to initialize GLAD" << std::endl;
@@ -192,12 +196,27 @@ int main()
     glfwSetMouseButtonCallback(window, mouse_button_callback);
 
     float last_frame_time = static_cast<float>(glfwGetTime());
+    float perf_accum_time = 0.0f;
+    int perf_frame_count = 0;
 
     while (!glfwWindowShouldClose(window)) {
         // time between frames, so movement speeds stay the same at any frame rate
         float current_time = static_cast<float>(glfwGetTime());
         float delta_time = current_time - last_frame_time;
         last_frame_time = current_time;
+
+        // average frame time in the title bar, refreshed twice a second
+        perf_accum_time += delta_time;
+        perf_frame_count += 1;
+        if (perf_accum_time >= 0.5f) {
+            float average_ms = perf_accum_time * 1000.0f / static_cast<float>(perf_frame_count);
+            char title[128];
+            std::snprintf(title, sizeof(title), "SigmaNova | %.2f ms/frame (%.0f FPS)",
+                average_ms, static_cast<float>(perf_frame_count) / perf_accum_time);
+            glfwSetWindowTitle(window, title);
+            perf_accum_time = 0.0f;
+            perf_frame_count = 0;
+        }
 
         process_input(window);
         scene_camera.process_input(window, delta_time);

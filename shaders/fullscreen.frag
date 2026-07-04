@@ -30,9 +30,13 @@ vec2 hit_sphere_bounds(vec3 ray_origin, vec3 ray_dir, vec3 sphere_center, float 
    
 }
 // Takes a 3D coordinate and turns it into a pseudo-random number.
+// Integer-free multiplicative hash: faster than the sin() version and
+// free of the precision artifacts sin-hashes show on some GPUs.
 float hash(vec3 p)
 {
-    return fract(sin(dot(p, vec3(127.1, 311.7, 74.7))) * 43758.5453);
+    p = fract(p * 0.3183099 + vec3(0.1, 0.2, 0.3));
+    p *= 17.0;
+    return fract(p.x * p.y * p.z * (p.x + p.y + p.z));
 }
 // Smooths random lattice values into continuous value noise.
 float value_noise(vec3 p)
@@ -62,47 +66,77 @@ float value_noise(vec3 p)
     // One smooth random value for point p.
     return mix(y0, y1, local.z);
 }
-// Moves the sampling point over time and layers value noise into FBM-style gas.
+// Scrolls the sampling point over time so the gas churns.
+// Roughly half the original scroll speed: fast motion reads as smoke,
+// near-frozen motion reads as a still image.
+vec3 animate_point(vec3 p)
+{
+    return p + vec3(sin(u_time * 0.18) * 0.22, u_time * 0.16, -u_time * 0.11);
+}
+
+// Layers value noise octaves, normalized so any octave count covers ~[0, 1].
+float fbm(vec3 p, int octaves)
+{
+    float noise = 0.0;
+    float amplitude = 0.5;
+    float frequency = 2.2;
+    float total_amplitude = 0.0;
+
+    for (int i = 0; i < octaves; ++i) {
+        noise += value_noise(p * frequency) * amplitude;
+        total_amplitude += amplitude;
+        frequency *= 2.0;
+        amplitude *= 0.5;
+    }
+
+    return noise / total_amplitude;
+}
+
+// Full-quality gas: domain warp + 4 octaves. Only the main convection cells
+// need this; the warp is what gives the gas its curling, fluid look.
 float gas_noise(vec3 p)
 {
-    // Roughly half the original scroll speed: fast motion reads as smoke,
-    // near-frozen motion reads as a still image.
-    vec3 animated_p = p + vec3(sin(u_time * 0.18) * 0.22, u_time * 0.16, -u_time * 0.11);
+    vec3 animated_p = animate_point(p);
     vec3 warp = vec3(
         value_noise(animated_p * 2.1 + vec3(5.2, 1.3, 0.7)),
         value_noise(animated_p * 2.1 + vec3(8.4, 2.8, 4.1)),
         value_noise(animated_p * 2.1 + vec3(1.9, 7.3, 6.6))) - vec3(0.5);
     animated_p += warp * 0.55;
 
-    float noise = 0.0;
-    float amplitude = 0.5;
-    float frequency = 2.2;
+    return clamp(fbm(animated_p, 4) * 1.11, 0.0, 1.0);
+}
 
-    for (int i = 0; i < 5; ++i) {
-        noise += value_noise(animated_p * frequency) * amplitude;
-        frequency *= 2.0;
-        amplitude *= 0.5;
-    }
-
-    return clamp(noise * 1.15, 0.0, 1.0);
+// Cheap gas: no domain warp, caller picks the octave count. Used for the
+// secondary layers (fine detail, surface warp) where the warp is invisible.
+float gas_noise_cheap(vec3 p, int octaves)
+{
+    return clamp(fbm(animate_point(p), octaves) * 1.11, 0.0, 1.0);
 }
 
 // Samples the current procedural density field. Later this can be swapped for texture-backed simulation data.
 float sample_density(vec3 p, vec3 sphere_center, float sphere_radius) {
     float distance_center = length(p - sphere_center);
+    // The warped surface can never exceed 1.35 * R (0.9 + 0.45 * max noise), so
+    // beyond that no gas can exist -- skip all noise work.
+    if (distance_center >= sphere_radius * 1.35) {
+        return 0.0;
+    }
     // Low-frequency noise offsets the effective surface radius per direction, so the
     // silhouette is lumpy instead of a perfect circle and gas can push past the
     // nominal radius. This is what dissolves the "drawn ring" edge into wispy gas.
-    float surface_noise = gas_noise(p * 1.3 + vec3(17.0, 3.0, 11.0));
+    float surface_noise = gas_noise_cheap(p * 1.3 + vec3(17.0, 3.0, 11.0), 2);
     float effective_radius = sphere_radius * (0.9 + 0.45 * surface_noise);
-    float radial = clamp(1.0 - (distance_center / effective_radius), 0.0, 1.0);
+    if (distance_center >= effective_radius) {
+        return 0.0; // outside the warped surface; skip the expensive layers
+    }
+    float radial = 1.0 - (distance_center / effective_radius);
     // sqrt lifts density near the surface so grazing rays still pick up glow;
     // linear falloff left the outer shell nearly empty and it rendered as a black ring
     float radial_density = sqrt(radial);
     // Two scales of convection: a few giant cells across the volume
     // with fine granulation layered on top.
     float cells = gas_noise(p * 0.55);
-    float detail = gas_noise(p * 2.6 + vec3(9.2, 4.7, 1.3));
+    float detail = gas_noise_cheap(p * 2.6 + vec3(9.2, 4.7, 1.3), 3);
     float noise = cells * 0.62 + detail * 0.38;
     // Contrast curve carves the noise into distinct bright pockets and dark lanes
     // instead of one smooth gradient, so the core reads as turbulent plasma.
@@ -132,7 +166,7 @@ void main()
     vec3 ray_dir = normalize(u_camera_forward + centered.x * u_camera_right + centered.y * u_camera_up);
     vec3 sphere_center = vec3(0.0, 0.0, 0.0);
     float sphere_radius = 1.0;   // nominal radius the density field fades out around
-    float march_radius = 1.4;    // enlarged bound so wispy gas can extend past the surface
+    float march_radius = 1.35;   // matches the density field's maximum warped radius
     vec2 bounds = hit_sphere_bounds(ray_origin, ray_dir, sphere_center, march_radius);
 
     // Wide soft halo, keyed loosely to the nominal radius so there is no hard ring
@@ -149,7 +183,6 @@ void main()
     if (bounds.y > 0.0) {
         float t = max(bounds.x, 0.0); // start marching at entry point unless behind camera
         float t_end = bounds.y;
-        float step_size = 0.03;
         // Higher absorption lets front clumps shadow the interior, so the core
         // shows turbulent depth instead of one evenly-lit patch.
         float absorption_strength = 0.7;
@@ -157,6 +190,10 @@ void main()
 
         while (t < t_end) {
             vec3 sample_point = ray_origin + t * ray_dir;
+            // Fine steps only matter in the dense core; the thin outer shell
+            // can stride coarser without visible banding.
+            float core_distance = length(sample_point - sphere_center);
+            float step_size = mix(0.03, 0.075, smoothstep(0.7, 1.35, core_distance));
             float density  = sample_density(sample_point, sphere_center, sphere_radius);
             // Higher density maps to hotter gas colors without washing the core
             // into a flat white blob.

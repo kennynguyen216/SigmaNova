@@ -114,6 +114,24 @@ Chapter 6 is focused on animated fields and live tuning. The next work should ma
 - push the gas toward large red-supergiant convection cells: dark red lanes, orange body, and yellow-hot patches
 - capture a fresh GIF once the motion reads well
 
+## Performance Notes
+
+The volumetric pass is the main performance cost because each visible pixel raymarches through the gas and samples procedural noise repeatedly. A first optimization pass reduced the measured frame time from about `24.0 ms/frame` to `6.84 ms/frame`, improving the scene from roughly `42 FPS` to `146 FPS` on the current machine while preserving the dissolved gas edge and turbulent core.
+
+Changes made:
+
+- replaced the slower sine hash with a cheaper multiplicative hash
+- split procedural noise into full-quality and cheap paths
+- kept domain-warped noise for the main convection cells
+- used cheaper/no-warp noise for fine detail and surface-edge warping
+- normalized FBM output so changing octave counts does not drastically change the look
+- added early exits before expensive noise when a sample is outside the possible gas volume
+- tightened the raymarch bound from `1.4` to `1.35`
+- added adaptive step sizing so thin outer gas uses larger steps than the dense core
+- added a title-bar frame-time/FPS readout for profiling
+
+`glfwSwapInterval(0)` is currently used during profiling so the FPS readout reflects shader cost instead of monitor refresh rate. For a polished demo capture, this can be changed back to `glfwSwapInterval(1)`.
+
 ## Planned Stack
 
 - C++
@@ -189,3 +207,4 @@ Set up the project from scratch and prove the toolchain works:
 - Noise-warped the effective gas radius to dissolve the clean circular silhouette into a billowing plasma edge.
 - Replaced the hard rim/collar look with a softer transmittance-aware halo.
 - Captured the dissolved volumetric gas milestone image.
+- Optimized the volumetric raymarch path from about `24.0 ms/frame` to `6.84 ms/frame` by tiering noise quality, adding early rejects, tightening the march bound, and using adaptive step sizes.
