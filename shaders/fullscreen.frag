@@ -40,17 +40,27 @@ float gas_noise(vec3 p){
     return bands * 0.5 + 0.5;
 }
 
-
-//helper function to sample density 
+//helper function to sample density
 float sample_density(vec3 p, vec3 sphere_center, float sphere_radius) {
     float distance_center = length(p - sphere_center);
-    float radial_density = 1.0 - (distance_center / sphere_radius);
-    radial_density = max(radial_density, 0.0);
+    float radial = clamp(1.0 - (distance_center / sphere_radius), 0.0, 1.0);
+    // sqrt lifts density near the surface so grazing rays still pick up glow;
+    // linear falloff left the outer shell nearly empty and it rendered as a black ring
+    float radial_density = sqrt(radial);
     float noise = gas_noise(p);
-    float turbulent_density = radial_density * mix(0.2, 1.65, noise);
-    turbulent_density = smoothstep(0.02, 1.0, turbulent_density);
-    return turbulent_density;
+    // noise floor of 0.55 keeps low-noise pockets as dim gas instead of black voids
+    float turbulent_density = radial_density * mix(0.55, 1.45, noise);
+    return clamp(turbulent_density, 0.0, 1.0);
 }
+
+//how close does the ray pass to the center
+float ray_sphere_near_distance(vec3 ray_origin, vec3 ray_dir, vec3 sphere_center){
+    vec3 origin_center = sphere_center - ray_origin; // vector from camera to sphere_center
+    float closest_t = dot(origin_center, ray_dir);
+    vec3 closest_point = ray_origin + closest_t * ray_dir;
+    return length(closest_point - sphere_center);
+}
+
 
 void main()
 {
@@ -84,10 +94,26 @@ void main()
             accumulated_color += gas_color * density * step_size * 2.0;
             t += step_size;
         }
+        // inner rim: ramps up toward the silhouette with the same color and strength the
+        // outer corona has there, so the glow is continuous across the sphere edge
+        float near_distance = ray_sphere_near_distance(ray_origin, ray_dir, sphere_center);
+        float inner_rim = smoothstep(sphere_radius * 0.55, sphere_radius, near_distance);
+        inner_rim = inner_rim * inner_rim;
+        accumulated_color += vec3(1.0, 0.22, 0.04) * inner_rim * 0.45;
 
-        //vec3 final_color = surface + emission + rim_glow + core_glow_color;
         frag_color = vec4(accumulated_color, 1.0);
 
+        return;
+    }
+
+    // outer corona: starts at full strength on the silhouette (matching the inner rim)
+    // and fades out by 1.9 radii
+    float near_distance = ray_sphere_near_distance(ray_origin, ray_dir, sphere_center);
+    float corona = 1.0 - smoothstep(sphere_radius, sphere_radius * 1.9, near_distance);
+    corona = corona * corona;
+    if (corona > 0.001) {
+        vec3 corona_color = vec3(1.0, 0.22, 0.04) * corona * 0.45;
+        frag_color = vec4(corona_color, 1.0);
         return;
     }
 

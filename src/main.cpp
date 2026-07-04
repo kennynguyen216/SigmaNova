@@ -175,6 +175,8 @@ int main()
         glDrawArrays(GL_LINES, 0, static_cast<int>(grid_vertices.size() / 3));
 
         glDisable(GL_DEPTH_TEST);
+        glEnable(GL_BLEND);
+        glBlendFunc(GL_ONE, GL_ONE);
 
         fullscreen_shader.use();
         fullscreen_shader.set_float("u_time", current_time);
@@ -186,6 +188,8 @@ int main()
 
         glBindVertexArray(vao);
         glDrawElements(GL_TRIANGLES, 6, GL_UNSIGNED_INT, 0);
+
+        glDisable(GL_BLEND);
 
         glfwSwapBuffers(window);
         glfwPollEvents();
