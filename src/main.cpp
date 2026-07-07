@@ -18,6 +18,7 @@ namespace {
 constexpr int window_width = 800;
 constexpr int window_height = 600;
 constexpr float camera_fov_degrees = 55.0f;
+constexpr float event_flash_start = 2.8f;
 float gas_noise_speed = 1.0f;
 float gas_noise_scale = 1.0f;
 float gas_emission_strength = 6.0f;
@@ -54,6 +55,18 @@ void adjust_control(GLFWwindow* window, int lower_key, int raise_key, float& val
 float control_fraction(float value, float min_value, float max_value)
 {
     return std::clamp((value - min_value) / (max_value - min_value), 0.0f, 1.0f);
+}
+
+float event_shake_strength(float event_time)
+{
+    float flash_age = event_time - event_flash_start;
+    if (flash_age < 0.0f || flash_age > 1.15f) {
+        return 0.0f;
+    }
+
+    float snap_on = std::clamp(flash_age / 0.08f, 0.0f, 1.0f);
+    float decay = std::exp(-flash_age * 3.2f);
+    return 0.045f * snap_on * decay;
 }
 
 glyph_rows glyph_for(char c)
@@ -345,6 +358,13 @@ int main()
         process_input(window, delta_time, current_time);
         scene_camera.process_input(window, delta_time);
 
+        float event_time = supernova_event_active ? current_time - supernova_event_start_time : 0.0f;
+        float shake_strength = supernova_event_active ? event_shake_strength(event_time) : 0.0f;
+        float shake_x = std::sin(current_time * 83.0f) * shake_strength;
+        float shake_y = std::sin(current_time * 121.0f + 1.7f) * shake_strength;
+        glm::vec3 render_camera_pos = scene_camera.position() + scene_camera.right() * shake_x + scene_camera.up() * shake_y;
+        glm::vec3 render_camera_forward = glm::normalize(scene_camera.forward() + scene_camera.right() * shake_x * 0.35f + scene_camera.up() * shake_y * 0.35f);
+
         // query the real framebuffer size so the shader's aspect ratio stays correct after a resize
         int framebuffer_width = 0;
         int framebuffer_height = 0;
@@ -359,7 +379,7 @@ int main()
         sky_shader.use();
         sky_shader.set_float("u_fov_y", glm::radians(camera_fov_degrees));
         sky_shader.set_vec2("u_resolution", static_cast<float>(framebuffer_width), static_cast<float>(framebuffer_height));
-        sky_shader.set_vec3("u_camera_forward", scene_camera.forward());
+        sky_shader.set_vec3("u_camera_forward", render_camera_forward);
         sky_shader.set_vec3("u_camera_right", scene_camera.right());
         sky_shader.set_vec3("u_camera_up", scene_camera.up());
 
@@ -369,7 +389,7 @@ int main()
         glEnable(GL_DEPTH_TEST);
 
         grid_shader.use();
-        glm::mat4 view = glm::lookAt(scene_camera.position(), scene_camera.position() + scene_camera.forward(), scene_camera.up());
+        glm::mat4 view = glm::lookAt(render_camera_pos, render_camera_pos + render_camera_forward, scene_camera.up());
         glm::mat4 projection = glm::perspective(glm::radians(camera_fov_degrees), static_cast<float>(framebuffer_width) / static_cast<float>(framebuffer_height), 0.1f, 100.0f);
         grid_shader.set_mat4("u_view", view);
         grid_shader.set_mat4("u_projection", projection);
@@ -386,8 +406,8 @@ int main()
         fullscreen_shader.set_float("u_time", current_time);
         fullscreen_shader.set_float("u_fov_y", glm::radians(camera_fov_degrees));
         fullscreen_shader.set_vec2("u_resolution", static_cast<float>(framebuffer_width), static_cast<float>(framebuffer_height));
-        fullscreen_shader.set_vec3("u_camera_pos", scene_camera.position());
-        fullscreen_shader.set_vec3("u_camera_forward", scene_camera.forward());
+        fullscreen_shader.set_vec3("u_camera_pos", render_camera_pos);
+        fullscreen_shader.set_vec3("u_camera_forward", render_camera_forward);
         fullscreen_shader.set_vec3("u_camera_right", scene_camera.right());
         fullscreen_shader.set_vec3("u_camera_up", scene_camera.up());
         fullscreen_shader.set_float("u_noise_speed", gas_noise_speed);
@@ -397,7 +417,7 @@ int main()
         fullscreen_shader.set_float("u_edge_raggedness", gas_edge_raggedness);
         fullscreen_shader.set_float("u_halo_strength", gas_halo_strength);
         fullscreen_shader.set_float("u_event_active", supernova_event_active ? 1.0f : 0.0f);
-        fullscreen_shader.set_float("u_event_time", supernova_event_active ? current_time - supernova_event_start_time : 0.0f);
+        fullscreen_shader.set_float("u_event_time", event_time);
 
         glBindVertexArray(vao);
         glDrawElements(GL_TRIANGLES, 6, GL_UNSIGNED_INT, 0);

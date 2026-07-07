@@ -28,10 +28,17 @@ const float SWELL_DURATION = 2.0;
 const float COLLAPSE_START = SWELL_DURATION;
 const float COLLAPSE_DURATION = 0.8;
 const float COLLAPSE_END = COLLAPSE_START + COLLAPSE_DURATION;
+const float FLASH_START = COLLAPSE_END;
+const float FLASH_DURATION = 0.45;   // the burst expands to full size this fast
+const float FLASH_END = FLASH_START + FLASH_DURATION;
+const float MIST_END = FLASH_END + 2; // glare fully faded into mist by here
 
 struct EventState {
     float swell;    // 0 at rest -> 1 fully swollen, unstable pre-collapse star
     float collapse; // 0 -> 1 as the star implodes and the core superheats
+    float burst;    // 0 -> 1 high-velocity radius expansion of the detonation
+    float flash;    // pulse: snaps to 1 at detonation, decays as the mist takes over
+    float mist;     // 0 -> 1 as the glare fades into colourful gaseous ejecta
 };
 
 EventState evaluate_event()
@@ -42,6 +49,13 @@ EventState evaluate_event()
     // Squaring makes the infall start gently and accelerate, the way
     // gravitational collapse should feel -- slow give, then a plunge.
     s.collapse = infall * infall;
+    // The flash snaps on almost instantly, rides through the burst expansion,
+    // then hands off: mist rises on exactly the curve the flash decays on.
+    float detonation = u_event_active * smoothstep(FLASH_START, FLASH_START + 0.08, u_event_time);
+    float settle = u_event_active * smoothstep(FLASH_END, MIST_END, u_event_time);
+    s.burst = u_event_active * smoothstep(FLASH_START, FLASH_END, u_event_time);
+    s.flash = detonation * (1.0 - settle);
+    s.mist = settle;
     return s;
 }
 
@@ -222,7 +236,19 @@ void main()
     radius_scale = mix(radius_scale, 0.22, event.collapse);
     brightness = mix(brightness, 1.15, event.collapse);
     raggedness = mix(raggedness, u_edge_raggedness * 0.35, event.collapse);
-    float core_glow = event.collapse;
+    // Flash + mist: the singularity detonates. The radius bursts outward at
+    // high velocity while the flash pulse holds everything blinding white,
+    // then the glare dies and the ejecta relaxes into wispy, translucent,
+    // colourful mist (slightly receding as it cools).
+    radius_scale = mix(radius_scale, 1.85, event.burst);
+    radius_scale = mix(radius_scale, 1.55, event.mist);
+    raggedness = mix(raggedness, u_edge_raggedness * 1.7, event.burst);
+    brightness = mix(brightness, 0.85, event.mist);
+    brightness = mix(brightness, 3.4, event.flash);
+    float core_glow = event.collapse * (1.0 - 0.8 * event.mist); // white core dims once spent
+    float flash_white = event.flash;
+    float mist = event.mist;
+    float absorption_scale = mix(1.0, 0.55, mist); // mist is translucent
 
     float sphere_radius = radius_scale;   // nominal radius the density field fades out around
     float march_radius = sphere_radius * (0.9 + raggedness);   // matches the density field's maximum warped radius
@@ -234,10 +260,11 @@ void main()
     float near_distance = ray_sphere_near_distance(ray_origin, ray_dir, sphere_center);
     float halo = 1.0 - smoothstep(sphere_radius * 0.85, sphere_radius * 2.1, near_distance);
     halo = pow(halo, 2.0);
-    // The halo whitens and intensifies with the collapsing core, so the
-    // proto-singularity sits in a radiant pale aura instead of a dark red one.
-    vec3 halo_tint = mix(vec3(0.9, 0.16, 0.03), vec3(1.0, 0.88, 0.72), core_glow);
-    vec3 halo_color = halo_tint * halo * u_halo_strength * brightness * (1.0 + core_glow * 1.5);
+    // The halo whitens and intensifies with the collapsing core, then blows
+    // out fully during the flash, so the aura tracks the object's heat.
+    float halo_heat = clamp(core_glow + flash_white, 0.0, 1.0);
+    vec3 halo_tint = mix(vec3(0.9, 0.16, 0.03), vec3(1.0, 0.88, 0.72), halo_heat);
+    vec3 halo_color = halo_tint * halo * u_halo_strength * brightness * (1.0 + core_glow * 1.5 + flash_white * 3.0);
 
     vec3 accumulated_color = vec3(0.0);
     float transmittance = 1.0;
@@ -256,9 +283,11 @@ void main()
             float density  = sample_density(sample_point, sphere_center, sphere_radius, raggedness);
             // Higher density maps to hotter gas colors without washing the core
             // into a flat white blob.
-            vec3 cool_gas = vec3(0.45, 0.02, 0.00);
-            vec3 warm_gas = vec3(0.95, 0.35, 0.00);
-            vec3 hot_gas = vec3(1.00, 0.82, 0.32);
+            // Mist shifts the palette off the stellar ramp toward cooled
+            // nebula colours: dusky magenta-maroon lows, salmon highs.
+            vec3 cool_gas = mix(vec3(0.45, 0.02, 0.00), vec3(0.30, 0.05, 0.16), mist);
+            vec3 warm_gas = mix(vec3(0.95, 0.35, 0.00), vec3(0.85, 0.28, 0.20), mist);
+            vec3 hot_gas = mix(vec3(1.00, 0.82, 0.32), vec3(0.95, 0.70, 0.62), mist);
             vec3 gas_color = mix(cool_gas, warm_gas, density);
             // High threshold keeps the hot core small and lets turbulence survive.
             float hot_mask = smoothstep(0.83, 1.0, density);
@@ -270,10 +299,11 @@ void main()
             // and no dark red shell survives around the singularity.
             float core_proximity = 1.0 - smoothstep(0.0, sphere_radius * 1.2, core_distance);
             vec3 singularity_white = vec3(1.0, 0.96, 0.88);
-            gas_color = mix(gas_color, singularity_white, core_glow * core_proximity);
+            // The flash whitens the whole volume, not just the core.
+            gas_color = mix(gas_color, singularity_white, clamp(core_glow * core_proximity + flash_white, 0.0, 1.0));
             vec3 emission = gas_color * density * u_emission_strength * brightness;
             emission += singularity_white * (core_glow * 5.0) * pow(core_proximity, 2.0) * density * u_emission_strength;
-            float absorption =  density * u_absorption_strength;
+            float absorption =  density * u_absorption_strength * absorption_scale;
             accumulated_color += transmittance * emission * step_size;
             transmittance *= exp(-absorption * step_size);
             if (transmittance < 0.01) {
@@ -287,6 +317,16 @@ void main()
     // (transmittance ~ 0), and at the wispy edge it shows through and blends, so the
     // silhouette dissolves into glow instead of ending at a drawn ring.
     accumulated_color += halo_color * transmittance;
+
+    // The detonation also hits the camera as a screen-space whiteout. This is
+    // separate from the gas volume: first a white disk expands from the blast,
+    // then the whole frame blooms for the fraction of a second you should not
+    // be able to look directly at it.
+    float screen_distance = length(centered);
+    float flash_radius = mix(0.04, 1.35, event.burst);
+    float expanding_flash = flash_white * (1.0 - smoothstep(flash_radius, flash_radius + 0.18, screen_distance));
+    float full_frame_flash = flash_white * smoothstep(0.45, 1.0, event.burst);
+    accumulated_color += vec3(1.0, 0.96, 0.86) * (expanding_flash * 9.0 + full_frame_flash * 3.0);
 
     float luminance = max(accumulated_color.r, max(accumulated_color.g, accumulated_color.b));
     if (luminance < 0.002) {
