@@ -8,7 +8,7 @@ The goal is to start from a clean graphics programming foundation, then build to
 
 ![Dissolved volumetric gas milestone](assets/captures/dissolved-volumetric-gas.png)
 
-The current build renders a red-giant-inspired volumetric gas cloud above a mesh-rendered spacetime fabric. The fullscreen fragment shader computes camera rays, finds entry/exit bounds through an enlarged gas volume, raymarches through procedural density, applies emission and absorption/transmittance, tone maps the result, and blends a soft halo over the grid.
+The current build renders a red-supergiant-inspired volumetric gas cloud above a mesh-rendered spacetime fabric. The fullscreen fragment shader computes camera rays, finds entry/exit bounds through an enlarged gas volume, raymarches through procedural density, applies emission and absorption/transmittance, tone maps the result, and blends a soft halo over the grid.
 
 This milestone moves the star away from a clean mathematical sphere edge. The gas boundary now dissolves through a noise-warped density field, so the silhouette reads more like billowing plasma than a shaded ball.
 
@@ -18,7 +18,7 @@ The spacetime-fabric grid started as a fullscreen fragment-shader experiment. Th
 
 ![Shader-raymarched spacetime fabric artifacts](assets/captures/spacetime-fabric-artifact.png)
 
-The fix is to render the fabric as real OpenGL line geometry instead of as a raymarched shader illusion. C++ now generates grid vertices, bends those vertices with a simple gravity-well equation, uploads them to a VBO/VAO, and draws them with `GL_LINES`. The red giant remains ray-rendered in the fullscreen shader while the fabric is a separate mesh-rendered object.
+The fix is to render the fabric as real OpenGL line geometry instead of as a raymarched shader illusion. C++ now generates grid vertices, bends those vertices with a simple gravity-well equation, uploads them to a VBO/VAO, and draws them with `GL_LINES`. The red supergiant remains ray-rendered in the fullscreen shader while the fabric is a separate mesh-rendered object.
 
 ![Mesh-rendered spacetime fabric fix](assets/captures/mesh-grid-fabric-fix.png)
 
@@ -46,11 +46,11 @@ These notes show the derivation behind the ray-sphere intersection used in the f
 
 ### 3. Red Giant Pulse
 
-![Red giant pulse demo](assets/captures/red-giant-pulse.gif)
+![Red supergiant pulse demo](assets/captures/red-giant-pulse.gif)
 
 [Watch the full MP4 demo](assets/captures/red-giant-pulse.mp4)
 
-This milestone starts the visual language for the pre-supernova star. The shader keeps the ray-sphere foundation, then layers in red-orange surface color, time-varying emission, rim glow, and center glow so the object reads more like a hot red giant than a matte test sphere.
+This milestone starts the visual language for the pre-supernova star. The shader keeps the ray-sphere foundation, then layers in red-orange surface color, time-varying emission, rim glow, and center glow so the object reads more like a hot red supergiant than a matte test sphere.
 
 ### 4. Mesh Spacetime Fabric
 
@@ -62,7 +62,7 @@ This milestone replaces the shader-raymarched grid prototype with real OpenGL li
 
 ![Volumetric gas demo](assets/captures/volumetric-gas-demo.gif)
 
-This milestone moves the red giant from a surface-shaded sphere toward a volumetric gas object. The fragment shader computes sphere entry/exit bounds, marches through the volume, samples density along the ray, and accumulates emissive gas color. Density is now separated into a `sample_density` function so the current procedural shader field can later be replaced by a C++/texture-backed simulation field.
+This milestone moves the red supergiant from a surface-shaded sphere toward a volumetric gas object. The fragment shader computes sphere entry/exit bounds, marches through the volume, samples density along the ray, and accumulates emissive gas color. Density is now separated into a `sample_density` function so the current procedural shader field can later be replaced by a C++/texture-backed simulation field.
 
 The gas texture is moving from simple sine-band modulation toward value-noise/FBM-style procedural noise. The goal is to replace visible sine spokes with more organic plasma-like clumps.
 
@@ -117,6 +117,8 @@ Chapter 6 is focused on animated fields and live tuning. The next work should ma
 ## Performance Notes
 
 The volumetric pass is the main performance cost because each visible pixel raymarches through the gas and samples procedural noise repeatedly. A first optimization pass reduced the measured frame time from about `24.0 ms/frame` to `6.84 ms/frame`, improving the scene from roughly `42 FPS` to `146 FPS` on the current machine while preserving the dissolved gas edge and turbulent core.
+
+Full write-up: [Performance Optimization Report](reports/optimization.md)
 
 Changes made:
 
@@ -182,7 +184,7 @@ Set up the project from scratch and prove the toolchain works:
 - Added a ray-sphere intersection shader.
 - Added a C++ orbit camera with keyboard controls.
 - Sent camera position and basis vectors into the fragment shader.
-- Tuned the ray-rendered sphere into a red-giant-inspired emissive pulse.
+- Tuned the ray-rendered sphere into a red-supergiant-inspired emissive pulse.
 
 ### 2026-07-03
 
