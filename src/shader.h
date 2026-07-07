@@ -14,6 +14,7 @@ public:
     void set_float(const std::string& name, float value) const;
     void set_vec2(const std::string& name, float x, float y) const;
     void set_vec3(const std::string& name, glm::vec3 value) const;
+    void set_vec4(const std::string& name, glm::vec4 value) const;
     void set_mat4(const std::string& name, const glm::mat4& value) const;
 
 private:

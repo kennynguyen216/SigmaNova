@@ -6,11 +6,13 @@ The goal is to start from a clean graphics programming foundation, then build to
 
 ## Current Milestone
 
-![Dissolved volumetric gas milestone](assets/captures/dissolved-volumetric-gas.png)
+![Live gas tuning HUD demo](assets/captures/live-tuning-demo.gif)
 
-The current build renders a red-supergiant-inspired volumetric gas cloud above a mesh-rendered spacetime fabric. The fullscreen fragment shader computes camera rays, finds entry/exit bounds through an enlarged gas volume, raymarches through procedural density, applies emission and absorption/transmittance, tone maps the result, and blends a soft halo over the grid.
+The current build renders a red-supergiant-inspired volumetric gas cloud above a mesh-rendered spacetime fabric with a live tuning HUD. The fullscreen fragment shader computes camera rays, finds entry/exit bounds through an enlarged gas volume, raymarches through procedural density, applies emission and absorption/transmittance, tone maps the result, and blends a soft halo over the grid.
 
 This milestone moves the star away from a clean mathematical sphere edge. The gas boundary now dissolves through a noise-warped density field, so the silhouette reads more like billowing plasma than a shaded ball.
+
+The latest control pass exposes the gas look as C++-owned shader uniforms and adds an on-screen HUD for live tuning. Keyboard controls can adjust emission, absorption, edge raggedness, noise speed, noise scale, and halo strength while the program is running.
 
 ## Rendering Notes
 
@@ -105,12 +107,27 @@ Current Chapter 5 status:
 - Dissolved noisy silhouette: working
 - Next visual target: chunkier animated red-supergiant convection cells
 
+### 7. Live Gas Tuning HUD
+
+![Live gas tuning HUD demo](assets/captures/live-tuning-demo.gif)
+
+This milestone starts Chapter 6 by making the gas renderer art-directable at runtime. The main gas controls now live in C++ and are sent into the fragment shader as uniforms. A lightweight OpenGL HUD draws labeled control bars directly over the scene, so the current tuning state is visible while the render runs.
+
+Current controls:
+
+- `Z/X` - emission strength
+- `C/V` - absorption strength
+- `B/N` - edge raggedness
+- `K/L` - noise speed
+- `O/P` - noise scale
+- `H/J` - halo strength
+
 ## Next Up
 
-Chapter 6 is focused on animated fields and live tuning. The next work should make the gas motion feel intentional instead of hardcoded:
+Chapter 6 is focused on animated fields and live tuning. The next work should build on the HUD and push the gas motion toward a more intentional red-supergiant look:
 
-- expose noise speed, scale, turbulence strength, absorption strength, and emission strength as uniforms
-- add keyboard controls or debug constants for quick tuning
+- add saved presets for good-looking gas states
+- add optional HUD toggling so captures can hide debug controls
 - push the gas toward large red-supergiant convection cells: dark red lanes, orange body, and yellow-hot patches
 - capture a fresh GIF once the motion reads well
 
@@ -210,3 +227,10 @@ Set up the project from scratch and prove the toolchain works:
 - Replaced the hard rim/collar look with a softer transmittance-aware halo.
 - Captured the dissolved volumetric gas milestone image.
 - Optimized the volumetric raymarch path from about `24.0 ms/frame` to `6.84 ms/frame` by tiering noise quality, adding early rejects, tightening the march bound, and using adaptive step sizes.
+
+### 2026-07-07
+
+- Exposed gas controls as uniforms owned by C++ instead of hardcoded shader constants.
+- Added keyboard tuning for emission, absorption, edge raggedness, noise speed, noise scale, and halo strength.
+- Added a lightweight in-window HUD with labeled bars and key pairs for live gas tuning.
+- Captured the live tuning HUD demo GIF.

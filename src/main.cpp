@@ -4,17 +4,30 @@
 
 #include "camera.h"
 #include "shader.h"
+#include <algorithm>
+#include <array>
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
 #include <cmath>
 #include <cstdio>
 #include <iostream>
+#include <string_view>
 #include <vector>
 
 namespace {
 constexpr int window_width = 800;
 constexpr int window_height = 600;
 constexpr float camera_fov_degrees = 55.0f;
+float gas_noise_speed = 1.0f;
+float gas_noise_scale = 1.0f;
+float gas_emission_strength = 6.0f;
+float gas_absorption_strength = 0.7f;
+float gas_edge_raggedness = 0.45f;
+float gas_halo_strength = 0.5f;
+constexpr int hud_rect_vertex_count = 6;
+constexpr int hud_rect_float_count = hud_rect_vertex_count * 2;
+
+using glyph_rows = std::array<std::string_view, 7>;
 
 camera* active_camera = nullptr;
 bool first_mouse = true;
@@ -22,11 +35,88 @@ bool mouse_dragging = false;
 float last_mouse_x = static_cast<float>(window_width) * 0.5f;
 float last_mouse_y = static_cast<float>(window_height) * 0.5f;
 
-void process_input(GLFWwindow* window)
+void adjust_control(GLFWwindow* window, int lower_key, int raise_key, float& value, float speed, float min_value, float max_value, float delta_time)
+{
+    if (glfwGetKey(window, lower_key) == GLFW_PRESS) {
+        value -= speed * delta_time;
+    }
+
+    if (glfwGetKey(window, raise_key) == GLFW_PRESS) {
+        value += speed * delta_time;
+    }
+
+    value = std::clamp(value, min_value, max_value);
+}
+
+float control_fraction(float value, float min_value, float max_value)
+{
+    return std::clamp((value - min_value) / (max_value - min_value), 0.0f, 1.0f);
+}
+
+glyph_rows glyph_for(char c)
+{
+    switch (c) {
+    case 'A':
+        return { "01110", "10001", "10001", "11111", "10001", "10001", "10001" };
+    case 'B':
+        return { "11110", "10001", "10001", "11110", "10001", "10001", "11110" };
+    case 'C':
+        return { "01111", "10000", "10000", "10000", "10000", "10000", "01111" };
+    case 'D':
+        return { "11110", "10001", "10001", "10001", "10001", "10001", "11110" };
+    case 'E':
+        return { "11111", "10000", "10000", "11110", "10000", "10000", "11111" };
+    case 'G':
+        return { "01111", "10000", "10000", "10011", "10001", "10001", "01111" };
+    case 'H':
+        return { "10001", "10001", "10001", "11111", "10001", "10001", "10001" };
+    case 'I':
+        return { "11111", "00100", "00100", "00100", "00100", "00100", "11111" };
+    case 'J':
+        return { "00111", "00010", "00010", "00010", "10010", "10010", "01100" };
+    case 'K':
+        return { "10001", "10010", "10100", "11000", "10100", "10010", "10001" };
+    case 'L':
+        return { "10000", "10000", "10000", "10000", "10000", "10000", "11111" };
+    case 'M':
+        return { "10001", "11011", "10101", "10101", "10001", "10001", "10001" };
+    case 'N':
+        return { "10001", "11001", "10101", "10011", "10001", "10001", "10001" };
+    case 'O':
+        return { "01110", "10001", "10001", "10001", "10001", "10001", "01110" };
+    case 'P':
+        return { "11110", "10001", "10001", "11110", "10000", "10000", "10000" };
+    case 'R':
+        return { "11110", "10001", "10001", "11110", "10100", "10010", "10001" };
+    case 'S':
+        return { "01111", "10000", "10000", "01110", "00001", "00001", "11110" };
+    case 'T':
+        return { "11111", "00100", "00100", "00100", "00100", "00100", "00100" };
+    case 'V':
+        return { "10001", "10001", "10001", "10001", "10001", "01010", "00100" };
+    case 'X':
+        return { "10001", "10001", "01010", "00100", "01010", "10001", "10001" };
+    case 'Z':
+        return { "11111", "00001", "00010", "00100", "01000", "10000", "11111" };
+    case '/':
+        return { "00001", "00010", "00010", "00100", "01000", "01000", "10000" };
+    default:
+        return { "00000", "00000", "00000", "00000", "00000", "00000", "00000" };
+    }
+}
+
+void process_input(GLFWwindow* window, float delta_time)
 {
     if (glfwGetKey(window, GLFW_KEY_ESCAPE) == GLFW_PRESS) {
         glfwSetWindowShouldClose(window, true);
     }
+
+    adjust_control(window, GLFW_KEY_Z, GLFW_KEY_X, gas_emission_strength, 4.0f, 0.0f, 15.0f, delta_time);
+    adjust_control(window, GLFW_KEY_C, GLFW_KEY_V, gas_absorption_strength, 1.0f, 0.0f, 3.0f, delta_time);
+    adjust_control(window, GLFW_KEY_B, GLFW_KEY_N, gas_edge_raggedness, 0.45f, 0.05f, 0.9f, delta_time);
+    adjust_control(window, GLFW_KEY_K, GLFW_KEY_L, gas_noise_speed, 0.75f, 0.0f, 3.0f, delta_time);
+    adjust_control(window, GLFW_KEY_O, GLFW_KEY_P, gas_noise_scale, 0.75f, 0.2f, 3.0f, delta_time);
+    adjust_control(window, GLFW_KEY_H, GLFW_KEY_J, gas_halo_strength, 0.75f, 0.0f, 2.0f, delta_time);
 }
 
 void framebuffer_size_callback(GLFWwindow*, int width, int height)
@@ -145,7 +235,7 @@ int main()
     glfwMakeContextCurrent(window);
     // Uncapped frame rate so the title-bar ms/frame readout reflects real shader
     // cost. Set to 1 to re-enable vsync once perf work is done.
-    glfwSwapInterval(0);
+    glfwSwapInterval(1);
 
     if (!gladLoadGLLoader((GLADloadproc)glfwGetProcAddress)) {
         std::cout << "Failed to initialize GLAD" << std::endl;
@@ -173,6 +263,7 @@ int main()
 
     shader fullscreen_shader("shaders/fullscreen.vert", "shaders/fullscreen.frag");
     shader grid_shader("shaders/grid.vert", "shaders/grid.frag");
+    shader hud_shader("shaders/hud.vert", "shaders/hud.frag");
 
     std::vector<float> grid_vertices = make_fabric_grid(9.0f, 54);
     unsigned int grid_vbo;
@@ -186,6 +277,19 @@ int main()
     glBufferData(GL_ARRAY_BUFFER, static_cast<GLsizeiptr>(grid_vertices.size() * sizeof(float)), grid_vertices.data(), GL_STATIC_DRAW);
 
     glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 3 * sizeof(float), (void*)0);
+    glEnableVertexAttribArray(0);
+
+    unsigned int hud_vbo;
+    unsigned int hud_vao;
+
+    glGenVertexArrays(1, &hud_vao);
+    glGenBuffers(1, &hud_vbo);
+
+    glBindVertexArray(hud_vao);
+    glBindBuffer(GL_ARRAY_BUFFER, hud_vbo);
+    glBufferData(GL_ARRAY_BUFFER, hud_rect_float_count * sizeof(float), nullptr, GL_DYNAMIC_DRAW);
+
+    glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, 2 * sizeof(float), (void*)0);
     glEnableVertexAttribArray(0);
 
     glfwSetFramebufferSizeCallback(window, framebuffer_size_callback);
@@ -210,15 +314,23 @@ int main()
         perf_frame_count += 1;
         if (perf_accum_time >= 0.5f) {
             float average_ms = perf_accum_time * 1000.0f / static_cast<float>(perf_frame_count);
-            char title[128];
-            std::snprintf(title, sizeof(title), "SigmaNova | %.2f ms/frame (%.0f FPS)",
-                average_ms, static_cast<float>(perf_frame_count) / perf_accum_time);
+            char title[256];
+            std::snprintf(title, sizeof(title),
+                "SigmaNova | %.2f ms/frame (%.0f FPS) | E %.2f A %.2f Edge %.2f Noise %.2f/%.2f Halo %.2f",
+                average_ms,
+                static_cast<float>(perf_frame_count) / perf_accum_time,
+                gas_emission_strength,
+                gas_absorption_strength,
+                gas_edge_raggedness,
+                gas_noise_speed,
+                gas_noise_scale,
+                gas_halo_strength);
             glfwSetWindowTitle(window, title);
             perf_accum_time = 0.0f;
             perf_frame_count = 0;
         }
 
-        process_input(window);
+        process_input(window, delta_time);
         scene_camera.process_input(window, delta_time);
 
         // query the real framebuffer size so the shader's aspect ratio stays correct after a resize
@@ -253,9 +365,88 @@ int main()
         fullscreen_shader.set_vec3("u_camera_forward", scene_camera.forward());
         fullscreen_shader.set_vec3("u_camera_right", scene_camera.right());
         fullscreen_shader.set_vec3("u_camera_up", scene_camera.up());
+        fullscreen_shader.set_float("u_noise_speed", gas_noise_speed);
+        fullscreen_shader.set_float("u_noise_scale", gas_noise_scale);
+        fullscreen_shader.set_float("u_emission_strength", gas_emission_strength);
+        fullscreen_shader.set_float("u_absorption_strength", gas_absorption_strength);
+        fullscreen_shader.set_float("u_edge_raggedness", gas_edge_raggedness);
+        fullscreen_shader.set_float("u_halo_strength", gas_halo_strength);
 
         glBindVertexArray(vao);
         glDrawElements(GL_TRIANGLES, 6, GL_UNSIGNED_INT, 0);
+
+        glDisable(GL_BLEND);
+
+        auto draw_hud_rect = [&](float left, float top, float width, float height, glm::vec4 color) {
+            float right = left + width;
+            float bottom = top - height;
+            float rect_vertices[hud_rect_float_count] = {
+                left, bottom,
+                right, bottom,
+                right, top,
+                right, top,
+                left, top,
+                left, bottom
+            };
+
+            hud_shader.set_vec4("u_color", color);
+            glBindVertexArray(hud_vao);
+            glBindBuffer(GL_ARRAY_BUFFER, hud_vbo);
+            glBufferSubData(GL_ARRAY_BUFFER, 0, sizeof(rect_vertices), rect_vertices);
+            glDrawArrays(GL_TRIANGLES, 0, hud_rect_vertex_count);
+        };
+
+        auto draw_hud_text = [&](std::string_view text, float left, float top, float pixel_size, glm::vec4 color) {
+            float cursor_x = left;
+
+            for (char c : text) {
+                if (c == ' ') {
+                    cursor_x += pixel_size * 4.0f;
+                    continue;
+                }
+
+                glyph_rows glyph = glyph_for(c);
+                for (int y = 0; y < static_cast<int>(glyph.size()); ++y) {
+                    for (int x = 0; x < static_cast<int>(glyph[y].size()); ++x) {
+                        if (glyph[y][x] == '1') {
+                            draw_hud_rect(
+                                cursor_x + static_cast<float>(x) * pixel_size,
+                                top - static_cast<float>(y) * pixel_size,
+                                pixel_size * 0.82f,
+                                pixel_size * 0.82f,
+                                color);
+                        }
+                    }
+                }
+
+                cursor_x += pixel_size * 6.0f;
+            }
+        };
+
+        auto draw_control_bar = [&](int row, std::string_view label, float fraction, glm::vec3 color) {
+            constexpr float label_left = -0.94f;
+            constexpr float bar_left = -0.56f;
+            constexpr float top = 0.91f;
+            constexpr float width = 0.42f;
+            constexpr float height = 0.035f;
+            constexpr float gap = 0.025f;
+
+            float row_top = top - static_cast<float>(row) * (height + gap);
+            draw_hud_text(label, label_left, row_top - 0.003f, 0.0045f, glm::vec4(0.88f, 0.90f, 0.92f, 0.92f));
+            draw_hud_rect(bar_left, row_top, width, height, glm::vec4(0.02f, 0.02f, 0.025f, 0.68f));
+            draw_hud_rect(bar_left, row_top, width * fraction, height, glm::vec4(color, 0.88f));
+        };
+
+        hud_shader.use();
+        glEnable(GL_BLEND);
+        glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+
+        draw_control_bar(0, "Z/X EMISSION", control_fraction(gas_emission_strength, 0.0f, 15.0f), glm::vec3(1.0f, 0.42f, 0.08f));
+        draw_control_bar(1, "C/V ABSORB", control_fraction(gas_absorption_strength, 0.0f, 3.0f), glm::vec3(0.35f, 0.58f, 1.0f));
+        draw_control_bar(2, "B/N EDGE", control_fraction(gas_edge_raggedness, 0.05f, 0.9f), glm::vec3(1.0f, 0.18f, 0.32f));
+        draw_control_bar(3, "K/L SPEED", control_fraction(gas_noise_speed, 0.0f, 3.0f), glm::vec3(0.42f, 1.0f, 0.42f));
+        draw_control_bar(4, "O/P SCALE", control_fraction(gas_noise_scale, 0.2f, 3.0f), glm::vec3(0.24f, 0.95f, 1.0f));
+        draw_control_bar(5, "H/J HALO", control_fraction(gas_halo_strength, 0.0f, 2.0f), glm::vec3(1.0f, 0.78f, 0.25f));
 
         glDisable(GL_BLEND);
 
@@ -265,11 +456,14 @@ int main()
 
     glDeleteVertexArrays(1, &vao);
     glDeleteVertexArrays(1, &grid_vao);
+    glDeleteVertexArrays(1, &hud_vao);
     glDeleteBuffers(1, &vbo);
     glDeleteBuffers(1, &grid_vbo);
+    glDeleteBuffers(1, &hud_vbo);
     glDeleteBuffers(1, &ebo);
     glDeleteProgram(fullscreen_shader.id);
     glDeleteProgram(grid_shader.id);
+    glDeleteProgram(hud_shader.id);
     glfwDestroyWindow(window);
     glfwTerminate();
 

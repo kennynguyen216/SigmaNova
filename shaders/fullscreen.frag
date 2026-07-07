@@ -9,6 +9,12 @@ uniform vec3 u_camera_pos;
 uniform vec3 u_camera_forward;
 uniform vec3 u_camera_right;
 uniform vec3 u_camera_up;
+uniform float u_noise_speed;
+uniform float u_noise_scale;
+uniform float u_emission_strength;
+uniform float u_absorption_strength;
+uniform float u_edge_raggedness;
+uniform float u_halo_strength;
 
 // Returns the ray's entry and exit distances through a sphere, or (-1, -1) on a miss.
 vec2 hit_sphere_bounds(vec3 ray_origin, vec3 ray_dir, vec3 sphere_center, float sphere_radius)
@@ -71,7 +77,10 @@ float value_noise(vec3 p)
 // near-frozen motion reads as a still image.
 vec3 animate_point(vec3 p)
 {
-    return p + vec3(sin(u_time * 0.18) * 0.22, u_time * 0.16, -u_time * 0.11);
+    return p + vec3(
+        sin(u_time * 0.18 * u_noise_speed) * 0.22,
+        u_time * 0.16 * u_noise_speed,
+        -u_time * 0.11 * u_noise_speed);
 }
 
 // Layers value noise octaves, normalized so any octave count covers ~[0, 1].
@@ -96,7 +105,7 @@ float fbm(vec3 p, int octaves)
 // need this; the warp is what gives the gas its curling, fluid look.
 float gas_noise(vec3 p)
 {
-    vec3 animated_p = animate_point(p);
+    vec3 animated_p = animate_point(p * u_noise_scale);
     vec3 warp = vec3(
         value_noise(animated_p * 2.1 + vec3(5.2, 1.3, 0.7)),
         value_noise(animated_p * 2.1 + vec3(8.4, 2.8, 4.1)),
@@ -110,22 +119,24 @@ float gas_noise(vec3 p)
 // secondary layers (fine detail, surface warp) where the warp is invisible.
 float gas_noise_cheap(vec3 p, int octaves)
 {
-    return clamp(fbm(animate_point(p), octaves) * 1.11, 0.0, 1.0);
+    return clamp(fbm(animate_point(p * u_noise_scale), octaves) * 1.11, 0.0, 1.0);
 }
 
 // Samples the current procedural density field. Later this can be swapped for texture-backed simulation data.
 float sample_density(vec3 p, vec3 sphere_center, float sphere_radius) {
     float distance_center = length(p - sphere_center);
-    // The warped surface can never exceed 1.35 * R (0.9 + 0.45 * max noise), so
+    float max_effective_radius = sphere_radius * (0.9 + u_edge_raggedness);
+
+    // The warped surface can never exceed max_effective_radius, so
     // beyond that no gas can exist -- skip all noise work.
-    if (distance_center >= sphere_radius * 1.35) {
+    if (distance_center >= max_effective_radius) {
         return 0.0;
     }
     // Low-frequency noise offsets the effective surface radius per direction, so the
     // silhouette is lumpy instead of a perfect circle and gas can push past the
     // nominal radius. This is what dissolves the "drawn ring" edge into wispy gas.
     float surface_noise = gas_noise_cheap(p * 1.3 + vec3(17.0, 3.0, 11.0), 2);
-    float effective_radius = sphere_radius * (0.9 + 0.45 * surface_noise);
+    float effective_radius = sphere_radius * (0.9 + u_edge_raggedness * surface_noise);
     if (distance_center >= effective_radius) {
         return 0.0; // outside the warped surface; skip the expensive layers
     }
@@ -166,7 +177,7 @@ void main()
     vec3 ray_dir = normalize(u_camera_forward + centered.x * u_camera_right + centered.y * u_camera_up);
     vec3 sphere_center = vec3(0.0, 0.0, 0.0);
     float sphere_radius = 1.0;   // nominal radius the density field fades out around
-    float march_radius = 1.35;   // matches the density field's maximum warped radius
+    float march_radius = 0.9 + u_edge_raggedness;   // matches the density field's maximum warped radius
     vec2 bounds = hit_sphere_bounds(ray_origin, ray_dir, sphere_center, march_radius);
 
     // Wide soft halo, keyed loosely to the nominal radius so there is no hard ring
@@ -175,7 +186,7 @@ void main()
     float near_distance = ray_sphere_near_distance(ray_origin, ray_dir, sphere_center);
     float halo = 1.0 - smoothstep(sphere_radius * 0.85, sphere_radius * 2.1, near_distance);
     halo = pow(halo, 2.0);
-    vec3 halo_color = vec3(0.9, 0.16, 0.03) * halo * 0.5;
+    vec3 halo_color = vec3(0.9, 0.16, 0.03) * halo * u_halo_strength;
 
     vec3 accumulated_color = vec3(0.0);
     float transmittance = 1.0;
@@ -183,11 +194,6 @@ void main()
     if (bounds.y > 0.0) {
         float t = max(bounds.x, 0.0); // start marching at entry point unless behind camera
         float t_end = bounds.y;
-        // Higher absorption lets front clumps shadow the interior, so the core
-        // shows turbulent depth instead of one evenly-lit patch.
-        float absorption_strength = 0.7;
-        float emission_strength = 6.0;
-
         while (t < t_end) {
             vec3 sample_point = ray_origin + t * ray_dir;
             // Fine steps only matter in the dense core; the thin outer shell
@@ -204,8 +210,8 @@ void main()
             // High threshold keeps the hot core small and lets turbulence survive.
             float hot_mask = smoothstep(0.83, 1.0, density);
             gas_color = mix(gas_color, hot_gas, hot_mask);
-            vec3 emission = gas_color * density * emission_strength;
-            float absorption =  density * absorption_strength;
+            vec3 emission = gas_color * density * u_emission_strength;
+            float absorption =  density * u_absorption_strength;
             accumulated_color += transmittance * emission * step_size;
             transmittance *= exp(-absorption * step_size);
             if (transmittance < 0.01) {
