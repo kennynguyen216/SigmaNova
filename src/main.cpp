@@ -21,7 +21,7 @@ constexpr float camera_fov_degrees = 55.0f;
 float gas_noise_speed = 1.0f;
 float gas_noise_scale = 1.0f;
 float gas_emission_strength = 6.0f;
-float gas_absorption_strength = 0.7f;
+float gas_absorption_strength = 1.15f;
 float gas_edge_raggedness = 0.45f;
 float gas_halo_strength = 0.5f;
 constexpr int hud_rect_vertex_count = 6;
@@ -265,7 +265,7 @@ int main()
     shader grid_shader("shaders/grid.vert", "shaders/grid.frag");
     shader hud_shader("shaders/hud.vert", "shaders/hud.frag");
 
-    std::vector<float> grid_vertices = make_fabric_grid(9.0f, 54);
+    std::vector<float> grid_vertices = make_fabric_grid(9.0f, 36);
     unsigned int grid_vbo;
     unsigned int grid_vao;
 
