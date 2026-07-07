@@ -24,6 +24,9 @@ float gas_emission_strength = 6.0f;
 float gas_absorption_strength = 1.15f;
 float gas_edge_raggedness = 0.45f;
 float gas_halo_strength = 0.5f;
+bool supernova_event_active = false;
+bool space_was_pressed = false;
+float supernova_event_start_time = 0.0f;
 constexpr int hud_rect_vertex_count = 6;
 constexpr int hud_rect_float_count = hud_rect_vertex_count * 2;
 
@@ -105,11 +108,18 @@ glyph_rows glyph_for(char c)
     }
 }
 
-void process_input(GLFWwindow* window, float delta_time)
+void process_input(GLFWwindow* window, float delta_time, float current_time)
 {
     if (glfwGetKey(window, GLFW_KEY_ESCAPE) == GLFW_PRESS) {
         glfwSetWindowShouldClose(window, true);
     }
+
+    bool space_pressed = glfwGetKey(window, GLFW_KEY_SPACE) == GLFW_PRESS;
+    if (space_pressed && !space_was_pressed) {
+        supernova_event_active = true;
+        supernova_event_start_time = current_time;
+    }
+    space_was_pressed = space_pressed;
 
     adjust_control(window, GLFW_KEY_Z, GLFW_KEY_X, gas_emission_strength, 4.0f, 0.0f, 15.0f, delta_time);
     adjust_control(window, GLFW_KEY_C, GLFW_KEY_V, gas_absorption_strength, 1.0f, 0.0f, 3.0f, delta_time);
@@ -261,6 +271,7 @@ int main()
     glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 3 * sizeof(float), (void*)0);
     glEnableVertexAttribArray(0);
 
+    shader sky_shader("shaders/fullscreen.vert", "shaders/sky.frag");
     shader fullscreen_shader("shaders/fullscreen.vert", "shaders/fullscreen.frag");
     shader grid_shader("shaders/grid.vert", "shaders/grid.frag");
     shader hud_shader("shaders/hud.vert", "shaders/hud.frag");
@@ -316,9 +327,10 @@ int main()
             float average_ms = perf_accum_time * 1000.0f / static_cast<float>(perf_frame_count);
             char title[256];
             std::snprintf(title, sizeof(title),
-                "SigmaNova | %.2f ms/frame (%.0f FPS) | E %.2f A %.2f Edge %.2f Noise %.2f/%.2f Halo %.2f",
+                "SigmaNova | %.2f ms/frame (%.0f FPS) | Event %.1f | E %.2f A %.2f Edge %.2f Noise %.2f/%.2f Halo %.2f",
                 average_ms,
                 static_cast<float>(perf_frame_count) / perf_accum_time,
+                supernova_event_active ? current_time - supernova_event_start_time : 0.0f,
                 gas_emission_strength,
                 gas_absorption_strength,
                 gas_edge_raggedness,
@@ -330,7 +342,7 @@ int main()
             perf_frame_count = 0;
         }
 
-        process_input(window, delta_time);
+        process_input(window, delta_time, current_time);
         scene_camera.process_input(window, delta_time);
 
         // query the real framebuffer size so the shader's aspect ratio stays correct after a resize
@@ -340,6 +352,19 @@ int main()
 
         glClearColor(0.002f, 0.004f, 0.012f, 1.0f);
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+
+        glDisable(GL_DEPTH_TEST);
+        glDisable(GL_BLEND);
+
+        sky_shader.use();
+        sky_shader.set_float("u_fov_y", glm::radians(camera_fov_degrees));
+        sky_shader.set_vec2("u_resolution", static_cast<float>(framebuffer_width), static_cast<float>(framebuffer_height));
+        sky_shader.set_vec3("u_camera_forward", scene_camera.forward());
+        sky_shader.set_vec3("u_camera_right", scene_camera.right());
+        sky_shader.set_vec3("u_camera_up", scene_camera.up());
+
+        glBindVertexArray(vao);
+        glDrawElements(GL_TRIANGLES, 6, GL_UNSIGNED_INT, 0);
 
         glEnable(GL_DEPTH_TEST);
 
@@ -371,6 +396,8 @@ int main()
         fullscreen_shader.set_float("u_absorption_strength", gas_absorption_strength);
         fullscreen_shader.set_float("u_edge_raggedness", gas_edge_raggedness);
         fullscreen_shader.set_float("u_halo_strength", gas_halo_strength);
+        fullscreen_shader.set_float("u_event_active", supernova_event_active ? 1.0f : 0.0f);
+        fullscreen_shader.set_float("u_event_time", supernova_event_active ? current_time - supernova_event_start_time : 0.0f);
 
         glBindVertexArray(vao);
         glDrawElements(GL_TRIANGLES, 6, GL_UNSIGNED_INT, 0);
@@ -461,6 +488,7 @@ int main()
     glDeleteBuffers(1, &grid_vbo);
     glDeleteBuffers(1, &hud_vbo);
     glDeleteBuffers(1, &ebo);
+    glDeleteProgram(sky_shader.id);
     glDeleteProgram(fullscreen_shader.id);
     glDeleteProgram(grid_shader.id);
     glDeleteProgram(hud_shader.id);

@@ -58,7 +58,7 @@ void camera::process_input(GLFWwindow* window, float delta_time)
     if (glfwGetKey(window, GLFW_KEY_S) == GLFW_PRESS) {
         position_ -= forward_ * velocity;
     }
-    if (glfwGetKey(window, GLFW_KEY_SPACE) == GLFW_PRESS){
+    if (glfwGetKey(window, GLFW_KEY_E) == GLFW_PRESS) {
         position_ += world_up_ * velocity;
     }
     if (glfwGetKey(window, GLFW_KEY_LEFT_CONTROL)== GLFW_PRESS) {

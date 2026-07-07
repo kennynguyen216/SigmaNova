@@ -15,6 +15,35 @@ uniform float u_emission_strength;
 uniform float u_absorption_strength;
 uniform float u_edge_raggedness;
 uniform float u_halo_strength;
+uniform float u_event_active;
+uniform float u_event_time;
+
+// ---------------------------------------------------------------------------
+// Supernova event timeline.
+// main.cpp only supplies a clock (u_event_active, u_event_time in seconds);
+// all choreography lives here. Each phase exposes a 0..1 mask and downstream
+// code mixes on the masks -- nothing else reads u_event_time directly, so
+// retiming the sequence means editing only these constants.
+const float SWELL_DURATION = 2.0;
+const float COLLAPSE_START = SWELL_DURATION;
+const float COLLAPSE_DURATION = 0.8;
+const float COLLAPSE_END = COLLAPSE_START + COLLAPSE_DURATION;
+
+struct EventState {
+    float swell;    // 0 at rest -> 1 fully swollen, unstable pre-collapse star
+    float collapse; // 0 -> 1 as the star implodes and the core superheats
+};
+
+EventState evaluate_event()
+{
+    EventState s;
+    s.swell = u_event_active * smoothstep(0.0, SWELL_DURATION, u_event_time);
+    float infall = u_event_active * smoothstep(COLLAPSE_START, COLLAPSE_END, u_event_time);
+    // Squaring makes the infall start gently and accelerate, the way
+    // gravitational collapse should feel -- slow give, then a plunge.
+    s.collapse = infall * infall;
+    return s;
+}
 
 // Returns the ray's entry and exit distances through a sphere, or (-1, -1) on a miss.
 vec2 hit_sphere_bounds(vec3 ray_origin, vec3 ray_dir, vec3 sphere_center, float sphere_radius)
@@ -123,9 +152,11 @@ float gas_noise_cheap(vec3 p, int octaves)
 }
 
 // Samples the current procedural density field. Later this can be swapped for texture-backed simulation data.
-float sample_density(vec3 p, vec3 sphere_center, float sphere_radius) {
+// Raggedness is a parameter (not the raw uniform) so event phases can agitate
+// the edge without this function knowing about the timeline.
+float sample_density(vec3 p, vec3 sphere_center, float sphere_radius, float raggedness) {
     float distance_center = length(p - sphere_center);
-    float max_effective_radius = sphere_radius * (0.9 + u_edge_raggedness);
+    float max_effective_radius = sphere_radius * (0.9 + raggedness);
 
     // The warped surface can never exceed max_effective_radius, so
     // beyond that no gas can exist -- skip all noise work.
@@ -136,7 +167,7 @@ float sample_density(vec3 p, vec3 sphere_center, float sphere_radius) {
     // silhouette is lumpy instead of a perfect circle and gas can push past the
     // nominal radius. This is what dissolves the "drawn ring" edge into wispy gas.
     float surface_noise = gas_noise_cheap(p * 1.3 + vec3(17.0, 3.0, 11.0), 2);
-    float effective_radius = sphere_radius * (0.9 + u_edge_raggedness * surface_noise);
+    float effective_radius = sphere_radius * (0.9 + raggedness * surface_noise);
     if (distance_center >= effective_radius) {
         return 0.0; // outside the warped surface; skip the expensive layers
     }
@@ -176,8 +207,25 @@ void main()
     vec3 ray_origin = u_camera_pos;
     vec3 ray_dir = normalize(u_camera_forward + centered.x * u_camera_right + centered.y * u_camera_up);
     vec3 sphere_center = vec3(0.0, 0.0, 0.0);
-    float sphere_radius = 1.0;   // nominal radius the density field fades out around
-    float march_radius = 0.9 + u_edge_raggedness;   // matches the density field's maximum warped radius
+
+    // Phase masks -> physical knobs. Everything below consumes these knobs;
+    // no other code needs to know which phase produced them.
+    EventState event = evaluate_event();
+    // Swell: the star inflates, runs hotter, and its edge destabilizes.
+    float radius_scale = mix(1.0, 1.45, event.swell);
+    float brightness = mix(1.0, 1.7, event.swell);
+    float raggedness = u_edge_raggedness * mix(1.0, 1.8, event.swell);
+    // Collapse: infall crushes the swollen star into a tiny, brilliant,
+    // near-spherical proto-singularity -- small, bright, and white-hot, the
+    // loaded spring the accretion disk will spew from. Each knob mixes from
+    // its swollen value so the phases chain.
+    radius_scale = mix(radius_scale, 0.22, event.collapse);
+    brightness = mix(brightness, 1.15, event.collapse);
+    raggedness = mix(raggedness, u_edge_raggedness * 0.35, event.collapse);
+    float core_glow = event.collapse;
+
+    float sphere_radius = radius_scale;   // nominal radius the density field fades out around
+    float march_radius = sphere_radius * (0.9 + raggedness);   // matches the density field's maximum warped radius
     vec2 bounds = hit_sphere_bounds(ray_origin, ray_dir, sphere_center, march_radius);
 
     // Wide soft halo, keyed loosely to the nominal radius so there is no hard ring
@@ -186,7 +234,10 @@ void main()
     float near_distance = ray_sphere_near_distance(ray_origin, ray_dir, sphere_center);
     float halo = 1.0 - smoothstep(sphere_radius * 0.85, sphere_radius * 2.1, near_distance);
     halo = pow(halo, 2.0);
-    vec3 halo_color = vec3(0.9, 0.16, 0.03) * halo * u_halo_strength;
+    // The halo whitens and intensifies with the collapsing core, so the
+    // proto-singularity sits in a radiant pale aura instead of a dark red one.
+    vec3 halo_tint = mix(vec3(0.9, 0.16, 0.03), vec3(1.0, 0.88, 0.72), core_glow);
+    vec3 halo_color = halo_tint * halo * u_halo_strength * brightness * (1.0 + core_glow * 1.5);
 
     vec3 accumulated_color = vec3(0.0);
     float transmittance = 1.0;
@@ -199,8 +250,10 @@ void main()
             // Fine steps only matter in the dense core; the thin outer shell
             // can stride coarser without visible banding.
             float core_distance = length(sample_point - sphere_center);
-            float step_size = mix(0.03, 0.075, smoothstep(0.7, 1.35, core_distance));
-            float density  = sample_density(sample_point, sphere_center, sphere_radius);
+            // Step bounds scale with the star so a swollen star keeps the same
+            // sample density (and cost profile) as the idle one.
+            float step_size = mix(0.03, 0.075, smoothstep(0.7 * radius_scale, 1.35 * radius_scale, core_distance));
+            float density  = sample_density(sample_point, sphere_center, sphere_radius, raggedness);
             // Higher density maps to hotter gas colors without washing the core
             // into a flat white blob.
             vec3 cool_gas = vec3(0.45, 0.02, 0.00);
@@ -210,7 +263,16 @@ void main()
             // High threshold keeps the hot core small and lets turbulence survive.
             float hot_mask = smoothstep(0.83, 1.0, density);
             gas_color = mix(gas_color, hot_gas, hot_mask);
-            vec3 emission = gas_color * density * u_emission_strength;
+            // Collapse core: proximity to the center whitens the gas itself and
+            // adds a strong bloom, so the crushed star reads as a brilliant
+            // white-hot point of light rather than a dim red ember. The kernel
+            // extends past the warped surface (1.2R) so even the rim whitens
+            // and no dark red shell survives around the singularity.
+            float core_proximity = 1.0 - smoothstep(0.0, sphere_radius * 1.2, core_distance);
+            vec3 singularity_white = vec3(1.0, 0.96, 0.88);
+            gas_color = mix(gas_color, singularity_white, core_glow * core_proximity);
+            vec3 emission = gas_color * density * u_emission_strength * brightness;
+            emission += singularity_white * (core_glow * 5.0) * pow(core_proximity, 2.0) * density * u_emission_strength;
             float absorption =  density * u_absorption_strength;
             accumulated_color += transmittance * emission * step_size;
             transmittance *= exp(-absorption * step_size);
