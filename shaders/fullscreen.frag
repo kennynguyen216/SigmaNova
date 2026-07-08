@@ -235,16 +235,17 @@ float stellar_surface_heat(vec3 p, vec3 sphere_center, float sphere_radius)
     float distance_center = length(offset);
     vec3 dir = normalize(offset + vec3(0.0001));
 
-    // Large red-supergiant convection cells plus smaller photosphere granules.
-    // This is not "fire"; it is a stylized plasma surface where hotter cells
-    // and active regions glow through the outer gas.
-    float cells = gas_noise_cheap(dir * 3.8 + vec3(12.0, 4.0, 21.0), 3);
-    float granules = gas_noise_cheap(dir * 12.5 + vec3(3.0, 19.0, 8.0), 2);
-    float active_regions = pow(cells * 0.68 + granules * 0.32, 2.2);
-
     float normalized_radius = distance_center / max(sphere_radius, 0.001);
     float photosphere_band = smoothstep(0.42, 0.92, normalized_radius)
                             * (1.0 - smoothstep(1.02, 1.18, normalized_radius));
+
+    // Large red-supergiant convection cells plus smaller photosphere granules.
+    // Blend direction-space with object-space noise so the pattern wraps around
+    // the star without forming spokes that all point back to the center.
+    vec3 object_p = p - sphere_center;
+    float cells = gas_noise_cheap(object_p * 1.55 + dir * 0.7 + vec3(12.0, 4.0, 21.0), 3);
+    float granules = gas_noise_cheap(object_p * 5.0 + dir * 1.8 + vec3(3.0, 19.0, 8.0), 2);
+    float active_regions = pow(cells * 0.72 + granules * 0.28, 2.6);
 
     return active_regions * photosphere_band;
 }
@@ -281,9 +282,13 @@ float sample_ejecta_density(vec3 p, vec3 sphere_center, float shell_radius, floa
     vec3 filament_coord = p * 1.65 + dir * distance_center * 0.22;
     float n = gas_noise_cheap(filament_coord + vec3(31.0, 7.0, 19.0), 3);
     float ridge = 1.0 - abs(2.0 * n - 1.0);
-    float filaments = pow(ridge, 2.4);
+    float broad_n = gas_noise_cheap(p * 0.78 + dir * 1.15 + vec3(2.0, 37.0, 11.0), 2);
+    float broad_ridge = 1.0 - abs(2.0 * broad_n - 1.0);
+    float broad_filaments = pow(broad_ridge, 6.5);
+    float fine_filaments = pow(ridge, 7.0);
+    float filaments = max(broad_filaments, fine_filaments * 0.32);
 
-    float broken_shell = mix(0.18, 1.65, filaments);
+    float broken_shell = mix(0.018, 3.1, filaments);
     return clamp(shell * broken_shell * shell_strength, 0.0, 1.0);
 }
 
@@ -302,16 +307,37 @@ float ejecta_shell_depth(vec3 p, vec3 sphere_center, float shell_radius, float s
     return clamp((distance_center - (warped_radius - warped_thickness)) / (warped_thickness * 2.0), 0.0, 1.0);
 }
 
-vec3 ejecta_color(float shell_depth, float filament_density)
+vec3 ejecta_color(vec3 p, vec3 sphere_center, float shell_depth, float filament_density)
 {
-    vec3 wake = vec3(0.17, 0.02, 0.08);
-    vec3 body = vec3(0.95, 0.24, 0.08);
-    vec3 leading_edge = vec3(1.0, 0.86, 0.45);
-    vec3 ionized_rim = vec3(0.20, 0.48, 1.0);
+    float inner = 1.0 - smoothstep(0.20, 0.58, shell_depth);
+    float middle = smoothstep(0.10, 0.46, shell_depth) * (1.0 - smoothstep(0.58, 0.86, shell_depth));
+    float rim = smoothstep(0.86, 1.0, shell_depth);
+    float filament = smoothstep(0.56, 0.98, filament_density);
+    float hot_thread = pow(filament, 2.2);
+    vec3 dir = normalize(p - sphere_center + vec3(0.0001));
+    float color_cells = gas_noise_cheap(p * 0.70 + dir * 1.25 + vec3(6.0, 23.0, 14.0), 3);
+    float rim_breakup = smoothstep(0.42, 0.92, gas_noise_cheap(p * 1.1 + dir * 0.8 + vec3(18.0, 4.0, 27.0), 2));
+    float blue_regions = smoothstep(0.52, 0.86, color_cells);
+    float magenta_regions = smoothstep(0.18, 0.52, 1.0 - abs(color_cells - 0.42) * 2.0);
+    float warm_regions = 1.0 - smoothstep(0.42, 0.78, color_cells);
+    float dark_lanes = pow(1.0 - filament, 2.3) * smoothstep(0.16, 0.78, middle + inner);
 
-    vec3 color = mix(wake, body, smoothstep(0.10, 0.60, shell_depth));
-    color = mix(color, leading_edge, smoothstep(0.62, 0.92, shell_depth));
-    color += ionized_rim * smoothstep(0.78, 1.0, shell_depth) * filament_density * 0.75;
+    vec3 transparent_body = vec3(0.012, 0.002, 0.035);
+    vec3 warm_inner = vec3(0.95, 0.10, 0.015);
+    vec3 magenta_mid = vec3(0.95, 0.03, 1.00);
+    vec3 violet_blue = vec3(0.12, 0.18, 1.00);
+    vec3 cyan_rim = vec3(0.00, 0.72, 1.00);
+    vec3 orange_filament = vec3(1.0, 0.34, 0.06);
+    vec3 blue_filament = vec3(0.10, 0.50, 1.0);
+
+    vec3 color = transparent_body;
+    color += warm_inner * inner * (0.04 + warm_regions * 0.10);
+    color += magenta_mid * middle * (0.12 + magenta_regions * 0.82);
+    color += violet_blue * middle * blue_regions * 0.62;
+    color += cyan_rim * rim * rim_breakup * (0.72 + filament * 1.65);
+    color += mix(orange_filament, blue_filament, rim) * hot_thread * 1.22;
+    color += vec3(0.12, 0.02, 0.22) * dark_lanes * 0.30;
+    color *= 1.0 - dark_lanes * 0.72;
     return color;
 }
 
@@ -448,15 +474,15 @@ void main()
             float surface_heat = stellar_surface_heat(sample_point, sphere_center, sphere_radius);
             surface_heat *= 1.0 - clamp(core_glow + flash_white + mist, 0.0, 1.0);
 
-            vec3 cool_gas = vec3(0.32, 0.015, 0.00);
-            vec3 warm_gas = vec3(0.78, 0.12, 0.00);
-            vec3 hot_gas = vec3(1.00, 0.55, 0.10);
-            vec3 flare_patch = vec3(1.0, 0.82, 0.28);
+            vec3 cool_gas = vec3(0.22, 0.006, 0.00);
+            vec3 warm_gas = vec3(0.66, 0.045, 0.00);
+            vec3 hot_gas = vec3(0.95, 0.20, 0.025);
+            vec3 flare_patch = vec3(1.0, 0.42, 0.08);
             vec3 gas_color = mix(cool_gas, warm_gas, density);
             // High threshold keeps the hot core small and lets turbulence survive.
             float hot_mask = smoothstep(0.83, 1.0, density);
             gas_color = mix(gas_color, hot_gas, hot_mask);
-            gas_color = mix(gas_color, flare_patch, smoothstep(0.42, 0.86, surface_heat));
+            gas_color = mix(gas_color, flare_patch, smoothstep(0.48, 0.90, surface_heat));
             // Collapse core: proximity to the center whitens the gas itself and
             // adds a strong bloom, so the crushed star reads as a brilliant
             // white-hot point of light rather than a dim red ember. The kernel
@@ -467,16 +493,22 @@ void main()
             // The flash whitens the whole volume, not just the core.
             gas_color = mix(gas_color, singularity_white, clamp(core_glow * core_proximity + flash_white, 0.0, 1.0));
             float shell_depth = ejecta_shell_depth(sample_point, sphere_center, shell_radius, shell_thickness);
-            vec3 shell_color = ejecta_color(shell_depth, ejecta_density);
+            vec3 shell_color = ejecta_color(sample_point, sphere_center, shell_depth, ejecta_density);
             // Afterglow: the freshly-revealed remnant is still white-hot from the
             // blast and blazes brighter, then cools into its nebula palette as the
             // glare recedes.
-            vec3 hot_shell = mix(shell_color, vec3(1.0, 0.95, 0.85), afterglow * 0.7);
+            vec3 afterglow_shell = mix(shell_color, shell_color * vec3(1.08, 0.70, 0.62) + vec3(0.04, 0.008, 0.03), afterglow * 0.18);
+            float filament_boost = smoothstep(0.62, 0.99, ejecta_density);
+            float vein_mask = pow(filament_boost, 2.0);
+            float rim_glow = smoothstep(0.88, 1.0, shell_depth);
             vec3 emission = gas_color * density * u_emission_strength * brightness * star_fade;
-            emission += flare_patch * surface_heat * density * u_emission_strength * 1.15 * star_fade;
+            emission += flare_patch * surface_heat * density * u_emission_strength * 0.95 * star_fade;
             emission += singularity_white * (core_glow * 5.0) * pow(core_proximity, 2.0) * density * u_emission_strength;
-            emission += hot_shell * ejecta_density * u_emission_strength * mix(0.0, 1.35, ejecta_strength) * (1.0 + afterglow * 1.3);
-            float absorption = (density * u_absorption_strength * absorption_scale) + (ejecta_density * u_absorption_strength * 0.32);
+            emission += afterglow_shell * ejecta_density * u_emission_strength * mix(0.0, 0.13, ejecta_strength) * (0.035 + filament_boost * 0.22 + vein_mask * 1.65 + afterglow * 0.04);
+            emission += vec3(0.00, 0.75, 1.0) * ejecta_density * rim_glow * u_emission_strength * 0.58 * ejecta_strength;
+            emission += vec3(1.0, 0.30, 0.04) * ejecta_density * vein_mask * u_emission_strength * 0.68 * ejecta_strength;
+            emission += vec3(0.24, 0.72, 1.0) * ejecta_density * vein_mask * rim_glow * u_emission_strength * 0.52 * ejecta_strength;
+            float absorption = (density * u_absorption_strength * absorption_scale) + (ejecta_density * u_absorption_strength * 0.20);
             accumulated_color += transmittance * emission * step_size;
             transmittance *= exp(-absorption * step_size);
             if (transmittance < 0.01) {
@@ -576,6 +608,8 @@ void main()
         discard; // nothing here — let the grid and background show through
     }
 
+    float remnant_exposure = mix(1.0, 0.48, ejecta_strength * (1.0 - flash_white));
+    accumulated_color *= remnant_exposure;
     accumulated_color = accumulated_color / (accumulated_color + vec3(1.0));
     frag_color = vec4(accumulated_color, 1.0);
 }
