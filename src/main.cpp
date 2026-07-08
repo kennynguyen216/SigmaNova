@@ -19,6 +19,10 @@ constexpr int window_width = 800;
 constexpr int window_height = 600;
 constexpr float camera_fov_degrees = 55.0f;
 constexpr float event_flash_start = 2.8f;
+// When the world-space glare front reaches the camera. Must match GLARE_HIT in
+// fullscreen.frag (FLASH_START + 0.95): the shake is the light hitting us.
+constexpr float event_glare_hit = event_flash_start + 0.95f;
+constexpr bool show_fabric_grid = false;
 float gas_noise_speed = 1.0f;
 float gas_noise_scale = 1.0f;
 float gas_emission_strength = 6.0f;
@@ -59,14 +63,28 @@ float control_fraction(float value, float min_value, float max_value)
 
 float event_shake_strength(float event_time)
 {
-    float flash_age = event_time - event_flash_start;
-    if (flash_age < 0.0f || flash_age > 1.15f) {
+    // The shake is the blast front striking the camera, so it is keyed to the
+    // impact moment, not the detonation: a hard snap on arrival, then a decay.
+    float hit_age = event_time - event_glare_hit;
+    if (hit_age < 0.0f || hit_age > 1.15f) {
         return 0.0f;
     }
 
-    float snap_on = std::clamp(flash_age / 0.08f, 0.0f, 1.0f);
-    float decay = std::exp(-flash_age * 3.2f);
-    return 0.045f * snap_on * decay;
+    float snap_on = std::clamp(hit_age / 0.06f, 0.0f, 1.0f);
+    float decay = std::exp(-hit_age * 3.2f);
+    return 0.055f * snap_on * decay;
+}
+
+float event_flash_hud_visibility(float event_time)
+{
+    float flash_age = event_time - event_flash_start;
+    if (flash_age < -0.05f || flash_age > 3.2f) {
+        return 1.0f;
+    }
+
+    float fade_out = 1.0f - std::clamp((flash_age + 0.05f) / 0.12f, 0.0f, 1.0f);
+    float fade_in = std::clamp((flash_age - 2.4f) / 0.8f, 0.0f, 1.0f);
+    return std::max(fade_out, fade_in);
 }
 
 glyph_rows glyph_for(char c)
@@ -360,6 +378,7 @@ int main()
 
         float event_time = supernova_event_active ? current_time - supernova_event_start_time : 0.0f;
         float shake_strength = supernova_event_active ? event_shake_strength(event_time) : 0.0f;
+        float hud_visibility = supernova_event_active ? event_flash_hud_visibility(event_time) : 1.0f;
         float shake_x = std::sin(current_time * 83.0f) * shake_strength;
         float shake_y = std::sin(current_time * 121.0f + 1.7f) * shake_strength;
         glm::vec3 render_camera_pos = scene_camera.position() + scene_camera.right() * shake_x + scene_camera.up() * shake_y;
@@ -386,17 +405,20 @@ int main()
         glBindVertexArray(vao);
         glDrawElements(GL_TRIANGLES, 6, GL_UNSIGNED_INT, 0);
 
-        glEnable(GL_DEPTH_TEST);
-
-        grid_shader.use();
         glm::mat4 view = glm::lookAt(render_camera_pos, render_camera_pos + render_camera_forward, scene_camera.up());
         glm::mat4 projection = glm::perspective(glm::radians(camera_fov_degrees), static_cast<float>(framebuffer_width) / static_cast<float>(framebuffer_height), 0.1f, 100.0f);
-        grid_shader.set_mat4("u_view", view);
-        grid_shader.set_mat4("u_projection", projection);
-        grid_shader.set_vec3("u_color", glm::vec3(0.82f));
 
-        glBindVertexArray(grid_vao);
-        glDrawArrays(GL_LINES, 0, static_cast<int>(grid_vertices.size() / 3));
+        if (show_fabric_grid) {
+            glEnable(GL_DEPTH_TEST);
+
+            grid_shader.use();
+            grid_shader.set_mat4("u_view", view);
+            grid_shader.set_mat4("u_projection", projection);
+            grid_shader.set_vec3("u_color", glm::vec3(0.82f));
+
+            glBindVertexArray(grid_vao);
+            glDrawArrays(GL_LINES, 0, static_cast<int>(grid_vertices.size() / 3));
+        }
 
         glDisable(GL_DEPTH_TEST);
         glEnable(GL_BLEND);
@@ -488,12 +510,14 @@ int main()
         glEnable(GL_BLEND);
         glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
 
-        draw_control_bar(0, "Z/X EMISSION", control_fraction(gas_emission_strength, 0.0f, 15.0f), glm::vec3(1.0f, 0.42f, 0.08f));
-        draw_control_bar(1, "C/V ABSORB", control_fraction(gas_absorption_strength, 0.0f, 3.0f), glm::vec3(0.35f, 0.58f, 1.0f));
-        draw_control_bar(2, "B/N EDGE", control_fraction(gas_edge_raggedness, 0.05f, 0.9f), glm::vec3(1.0f, 0.18f, 0.32f));
-        draw_control_bar(3, "K/L SPEED", control_fraction(gas_noise_speed, 0.0f, 3.0f), glm::vec3(0.42f, 1.0f, 0.42f));
-        draw_control_bar(4, "O/P SCALE", control_fraction(gas_noise_scale, 0.2f, 3.0f), glm::vec3(0.24f, 0.95f, 1.0f));
-        draw_control_bar(5, "H/J HALO", control_fraction(gas_halo_strength, 0.0f, 2.0f), glm::vec3(1.0f, 0.78f, 0.25f));
+        if (hud_visibility > 0.01f) {
+            draw_control_bar(0, "Z/X EMISSION", control_fraction(gas_emission_strength, 0.0f, 15.0f), glm::vec3(1.0f, 0.42f, 0.08f) * hud_visibility);
+            draw_control_bar(1, "C/V ABSORB", control_fraction(gas_absorption_strength, 0.0f, 3.0f), glm::vec3(0.35f, 0.58f, 1.0f) * hud_visibility);
+            draw_control_bar(2, "B/N EDGE", control_fraction(gas_edge_raggedness, 0.05f, 0.9f), glm::vec3(1.0f, 0.18f, 0.32f) * hud_visibility);
+            draw_control_bar(3, "K/L SPEED", control_fraction(gas_noise_speed, 0.0f, 3.0f), glm::vec3(0.42f, 1.0f, 0.42f) * hud_visibility);
+            draw_control_bar(4, "O/P SCALE", control_fraction(gas_noise_scale, 0.2f, 3.0f), glm::vec3(0.24f, 0.95f, 1.0f) * hud_visibility);
+            draw_control_bar(5, "H/J HALO", control_fraction(gas_halo_strength, 0.0f, 2.0f), glm::vec3(1.0f, 0.78f, 0.25f) * hud_visibility);
+        }
 
         glDisable(GL_BLEND);
 
