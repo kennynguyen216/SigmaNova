@@ -336,6 +336,12 @@ void main()
     float ejecta_march_radius = shell_radius + shell_thickness * 3.0;
     float march_radius = mix(star_march_radius, max(star_march_radius, ejecta_march_radius), ejecta_strength);
     vec2 bounds = hit_sphere_bounds(ray_origin, ray_dir, sphere_center, march_radius);
+    // Between the star volume's outer surface and the ejecta shell's inner
+    // face there is provably no medium -- both density functions early-out
+    // there. The march loop jumps that hollow interior analytically instead
+    // of stepping through it. (Pre-detonation this radius sits inside the
+    // star, so the skip condition simply never fires.)
+    float shell_inner_radius = shell_radius - shell_thickness * 3.0;
 
     // Wide soft halo, keyed loosely to the nominal radius so there is no hard ring
     // at exactly R. This is the only "atmosphere" term left now that the rim/collar
@@ -360,10 +366,25 @@ void main()
             // Fine steps only matter in the dense core; the thin outer shell
             // can stride coarser without visible banding.
             float core_distance = length(sample_point - sphere_center);
+            // Hollow-interior skip: stepping s along any ray changes the
+            // distance to center by at most s, so jumping (inner - d) from
+            // inside the void can never overshoot into the shell. The whole
+            // empty interior costs one iteration instead of dozens.
+            if (core_distance > star_march_radius && core_distance < shell_inner_radius) {
+                t += max(shell_inner_radius - core_distance, 0.05);
+                continue;
+            }
             // Step bounds scale with the star so a swollen star keeps the same
             // sample density (and cost profile) as the idle one.
             float step_size = mix(0.03, 0.075, smoothstep(0.7 * radius_scale, 1.35 * radius_scale, core_distance));
             step_size *= mix(1.0, 1.8, mist);
+            // Outside the star, resolution only needs to resolve the shell's
+            // Gaussian profile: ~2 samples per sigma is plenty for gas this
+            // soft. As the shell disperses and thickens, the stride grows with
+            // it instead of oversampling a blur.
+            if (core_distance > star_march_radius) {
+                step_size = max(step_size, shell_thickness * 0.55);
+            }
             float density  = sample_density(sample_point, sphere_center, sphere_radius, raggedness);
             float ejecta_density = sample_ejecta_density(sample_point, sphere_center, shell_radius, shell_thickness, ejecta_strength);
             // Higher density maps to hotter gas colors without washing the core

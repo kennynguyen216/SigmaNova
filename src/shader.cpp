@@ -42,29 +42,41 @@ void shader::use() const
     glUseProgram(id);
 }
 
+int shader::uniform_location(const std::string& name) const
+{
+    auto cached = uniform_location_cache_.find(name);
+    if (cached != uniform_location_cache_.end()) {
+        return cached->second;
+    }
+
+    int location = glGetUniformLocation(id, name.c_str());
+    uniform_location_cache_.emplace(name, location);
+    return location;
+}
+
 void shader::set_float(const std::string& name, float value) const
 {
-    glUniform1f(glGetUniformLocation(id, name.c_str()), value);
+    glUniform1f(uniform_location(name), value);
 }
 
 void shader::set_vec2(const std::string& name, float x, float y) const
 {
-    glUniform2f(glGetUniformLocation(id, name.c_str()), x, y);
+    glUniform2f(uniform_location(name), x, y);
 }
 
 void shader::set_vec3(const std::string& name, glm::vec3 value) const
 {
-    glUniform3f(glGetUniformLocation(id, name.c_str()), value.x, value.y, value.z);
+    glUniform3f(uniform_location(name), value.x, value.y, value.z);
 }
 
 void shader::set_vec4(const std::string& name, glm::vec4 value) const
 {
-    glUniform4f(glGetUniformLocation(id, name.c_str()), value.x, value.y, value.z, value.w);
+    glUniform4f(uniform_location(name), value.x, value.y, value.z, value.w);
 }
 
 void shader::set_mat4(const std::string& name, const glm::mat4& value) const
 {
-    glUniformMatrix4fv(glGetUniformLocation(id, name.c_str()), 1, GL_FALSE, glm::value_ptr(value));
+    glUniformMatrix4fv(uniform_location(name), 1, GL_FALSE, glm::value_ptr(value));
 }
 
 std::string shader::read_file(const char* path)

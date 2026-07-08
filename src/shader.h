@@ -2,6 +2,7 @@
 
 #include <glm/glm.hpp>
 #include <string>
+#include <unordered_map>
 
 class shader {
 public:
@@ -18,6 +19,12 @@ public:
     void set_mat4(const std::string& name, const glm::mat4& value) const;
 
 private:
+    // glGetUniformLocation is a string lookup into the driver; uniform names
+    // never change after link, so each is resolved once and memoized.
+    int uniform_location(const std::string& name) const;
+
+    mutable std::unordered_map<std::string, int> uniform_location_cache_;
+
     static std::string read_file(const char* path);
     static void check_compile_errors(unsigned int shader_id, const std::string& type);
 };
