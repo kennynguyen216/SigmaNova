@@ -229,17 +229,51 @@ float sample_density(vec3 p, vec3 sphere_center, float sphere_radius, float ragg
     return clamp(turbulent_density, 0.0, 1.0);
 }
 
-float sample_ejecta_density(vec3 p, vec3 sphere_center, float shell_radius, float shell_thickness, float shell_strength)
+float stellar_surface_heat(vec3 p, vec3 sphere_center, float sphere_radius)
 {
     vec3 offset = p - sphere_center;
     float distance_center = length(offset);
-    float shell_distance = (distance_center - shell_radius) / shell_thickness;
+    vec3 dir = normalize(offset + vec3(0.0001));
+
+    // Large red-supergiant convection cells plus smaller photosphere granules.
+    // This is not "fire"; it is a stylized plasma surface where hotter cells
+    // and active regions glow through the outer gas.
+    float cells = gas_noise_cheap(dir * 3.8 + vec3(12.0, 4.0, 21.0), 3);
+    float granules = gas_noise_cheap(dir * 12.5 + vec3(3.0, 19.0, 8.0), 2);
+    float active_regions = pow(cells * 0.68 + granules * 0.32, 2.2);
+
+    float normalized_radius = distance_center / max(sphere_radius, 0.001);
+    float photosphere_band = smoothstep(0.42, 0.92, normalized_radius)
+                            * (1.0 - smoothstep(1.02, 1.18, normalized_radius));
+
+    return active_regions * photosphere_band;
+}
+
+float sample_ejecta_density(vec3 p, vec3 sphere_center, float shell_radius, float shell_thickness, float shell_strength)
+{
+    if (shell_strength <= 0.0) {
+        return 0.0;
+    }
+
+    vec3 offset = p - sphere_center;
+    float distance_center = length(offset);
+    vec3 dir = normalize(offset + vec3(0.0001));
+
+    // Supernova remnants are not clean spheres. Warp the shell radius by
+    // direction so the boundary grows in lobes and wisps instead of one circle.
+    float lobe_noise = gas_noise_cheap(dir * 2.4 + vec3(41.0, 13.0, 7.0), 3);
+    float fine_lobes = gas_noise_cheap(dir * 6.2 + vec3(4.0, 29.0, 17.0), 2);
+    float directional_push = mix(lobe_noise, fine_lobes, 0.35);
+    directional_push = directional_push * directional_push;
+    float warped_radius = shell_radius * mix(0.74, 1.28, directional_push);
+    float warped_thickness = shell_thickness * mix(0.75, 1.45, fine_lobes);
+
+    float shell_distance = (distance_center - warped_radius) / warped_thickness;
 
     if (abs(shell_distance) > 3.0) {
         return 0.0;
     }
 
-    vec3 dir = normalize(offset + vec3(0.0001));
     float shell = exp(-shell_distance * shell_distance);
 
     // Filament noise: mostly tangent-like detail with a smaller radial term, then
@@ -251,6 +285,21 @@ float sample_ejecta_density(vec3 p, vec3 sphere_center, float shell_radius, floa
 
     float broken_shell = mix(0.18, 1.65, filaments);
     return clamp(shell * broken_shell * shell_strength, 0.0, 1.0);
+}
+
+float ejecta_shell_depth(vec3 p, vec3 sphere_center, float shell_radius, float shell_thickness)
+{
+    vec3 offset = p - sphere_center;
+    float distance_center = length(offset);
+    vec3 dir = normalize(offset + vec3(0.0001));
+    float lobe_noise = gas_noise_cheap(dir * 2.4 + vec3(41.0, 13.0, 7.0), 3);
+    float fine_lobes = gas_noise_cheap(dir * 6.2 + vec3(4.0, 29.0, 17.0), 2);
+    float directional_push = mix(lobe_noise, fine_lobes, 0.35);
+    directional_push = directional_push * directional_push;
+    float warped_radius = shell_radius * mix(0.74, 1.28, directional_push);
+    float warped_thickness = shell_thickness * mix(0.75, 1.45, fine_lobes);
+
+    return clamp((distance_center - (warped_radius - warped_thickness)) / (warped_thickness * 2.0), 0.0, 1.0);
 }
 
 vec3 ejecta_color(float shell_depth, float filament_density)
@@ -284,11 +333,17 @@ void main()
 
     vec3 ray_origin = u_camera_pos;
     vec3 ray_dir = normalize(u_camera_forward + centered.x * u_camera_right + centered.y * u_camera_up);
-    vec3 sphere_center = vec3(0.0, 0.0, 0.0);
-
     // Phase masks -> physical knobs. Everything below consumes these knobs;
     // no other code needs to know which phase produced them.
     EventState event = evaluate_event();
+    vec3 sphere_center = vec3(0.0, 0.0, 0.0);
+    // Pre-flash instability: the star itself jitters before it blows. This is
+    // separate from the camera shake, which happens later when the blast hits us.
+    float instability = u_event_active * smoothstep(0.35, FLASH_START, u_event_time)
+                      * (1.0 - smoothstep(FLASH_START - 0.08, FLASH_START + 0.08, u_event_time));
+    float tremor_strength = 0.018 * instability * (1.0 + event.collapse * 2.2);
+    sphere_center += u_camera_right * sin(u_time * 37.0 + sin(u_time * 11.0)) * tremor_strength;
+    sphere_center += u_camera_up * sin(u_time * 49.0 + 1.7) * tremor_strength;
     // Swell: the star inflates, runs hotter, and its edge destabilizes.
     float radius_scale = mix(1.0, 1.45, event.swell);
     float brightness = mix(1.0, 1.7, event.swell);
@@ -390,13 +445,18 @@ void main()
             // Higher density maps to hotter gas colors without washing the core
             // into a flat white blob. The star volume keeps its stellar ramp for
             // its whole life -- remnant colours belong to ejecta_color(), not here.
-            vec3 cool_gas = vec3(0.45, 0.02, 0.00);
-            vec3 warm_gas = vec3(0.95, 0.35, 0.00);
-            vec3 hot_gas = vec3(1.00, 0.82, 0.32);
+            float surface_heat = stellar_surface_heat(sample_point, sphere_center, sphere_radius);
+            surface_heat *= 1.0 - clamp(core_glow + flash_white + mist, 0.0, 1.0);
+
+            vec3 cool_gas = vec3(0.32, 0.015, 0.00);
+            vec3 warm_gas = vec3(0.78, 0.12, 0.00);
+            vec3 hot_gas = vec3(1.00, 0.55, 0.10);
+            vec3 flare_patch = vec3(1.0, 0.82, 0.28);
             vec3 gas_color = mix(cool_gas, warm_gas, density);
             // High threshold keeps the hot core small and lets turbulence survive.
             float hot_mask = smoothstep(0.83, 1.0, density);
             gas_color = mix(gas_color, hot_gas, hot_mask);
+            gas_color = mix(gas_color, flare_patch, smoothstep(0.42, 0.86, surface_heat));
             // Collapse core: proximity to the center whitens the gas itself and
             // adds a strong bloom, so the crushed star reads as a brilliant
             // white-hot point of light rather than a dim red ember. The kernel
@@ -406,13 +466,14 @@ void main()
             vec3 singularity_white = vec3(1.0, 0.96, 0.88);
             // The flash whitens the whole volume, not just the core.
             gas_color = mix(gas_color, singularity_white, clamp(core_glow * core_proximity + flash_white, 0.0, 1.0));
-            float shell_depth = clamp((core_distance - (shell_radius - shell_thickness)) / (shell_thickness * 2.0), 0.0, 1.0);
+            float shell_depth = ejecta_shell_depth(sample_point, sphere_center, shell_radius, shell_thickness);
             vec3 shell_color = ejecta_color(shell_depth, ejecta_density);
             // Afterglow: the freshly-revealed remnant is still white-hot from the
             // blast and blazes brighter, then cools into its nebula palette as the
             // glare recedes.
             vec3 hot_shell = mix(shell_color, vec3(1.0, 0.95, 0.85), afterglow * 0.7);
             vec3 emission = gas_color * density * u_emission_strength * brightness * star_fade;
+            emission += flare_patch * surface_heat * density * u_emission_strength * 1.15 * star_fade;
             emission += singularity_white * (core_glow * 5.0) * pow(core_proximity, 2.0) * density * u_emission_strength;
             emission += hot_shell * ejecta_density * u_emission_strength * mix(0.0, 1.35, ejecta_strength) * (1.0 + afterglow * 1.3);
             float absorption = (density * u_absorption_strength * absorption_scale) + (ejecta_density * u_absorption_strength * 0.32);
@@ -481,7 +542,33 @@ void main()
         float glare_coverage = clamp(max(glare_rgb.r, max(glare_rgb.g, glare_rgb.b)) * glare_energy, 0.0, 1.0);
         float whiteout_strength = glare_coverage * (1.0 - smoothstep(0.35, 0.92, event.glare_recede));
         accumulated_color = mix(accumulated_color, vec3(90.0) * glare_tint, whiteout_strength);
-        accumulated_color += glare_tint * glare_rgb * glare_energy * 4.0;
+        accumulated_color += glare_tint * glare_rgb * glare_energy * 2.8;
+
+        // Anisotropic bloom: stretch the same detonation light horizontally
+        // instead of drawing a separate disk over the round flash. The wide
+        // core bridge keeps the flare glued to the white center.
+        vec2 flare_p = centered - remnant_view;
+        float flare_life = 1.0 - smoothstep(0.72, 1.0, event.glare_recede);
+        float line_width = mix(0.055, 0.026, event.glare_recede);
+        float line_length = mix(0.85, 2.35, event.glare_grow);
+        float horizontal_core = exp(-(flare_p.y * flare_p.y) / (line_width * line_width));
+        horizontal_core *= exp(-abs(flare_p.x) / line_length);
+
+        vec2 bridge_p = vec2(flare_p.x * 0.45, flare_p.y * 1.8);
+        float center_bridge = exp(-dot(bridge_p, bridge_p) * 3.2);
+        // Hollow the midline so it reads like a luminous ring/flare around the
+        // blast instead of a solid bar pasted across the center.
+        float hollow_core = 1.0 - exp(-dot(flare_p, flare_p) * 18.0);
+        float ring_band = smoothstep(0.05, 0.18, abs(flare_p.y)) * (1.0 - smoothstep(0.28, 0.62, abs(flare_p.y)));
+        float hollow_flare = horizontal_core * mix(0.28, 1.0, hollow_core);
+        hollow_flare += horizontal_core * ring_band * 0.42;
+        float blended_flare = max(hollow_flare * 0.82, center_bridge * 0.55);
+        blended_flare *= flare_life * glare_energy;
+
+        // Slight chromatic edge: blue on the outer glare, warm near the core.
+        float flare_edge = smoothstep(0.12, 0.9, abs(flare_p.x));
+        vec3 lens_tint = mix(vec3(1.0, 0.66, 0.24), vec3(0.62, 0.74, 1.0), flare_edge);
+        accumulated_color += lens_tint * blended_flare * 5.2;
     }
 
     float luminance = max(accumulated_color.r, max(accumulated_color.g, accumulated_color.b));

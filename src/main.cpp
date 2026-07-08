@@ -378,7 +378,7 @@ int main()
 
         float event_time = supernova_event_active ? current_time - supernova_event_start_time : 0.0f;
         float shake_strength = supernova_event_active ? event_shake_strength(event_time) : 0.0f;
-        float hud_visibility = supernova_event_active ? event_flash_hud_visibility(event_time) : 1.0f;
+        float hud_visibility = supernova_event_active ? 0.0f : 1.0f;
         float shake_x = std::sin(current_time * 83.0f) * shake_strength;
         float shake_y = std::sin(current_time * 121.0f + 1.7f) * shake_strength;
         glm::vec3 render_camera_pos = scene_camera.position() + scene_camera.right() * shake_x + scene_camera.up() * shake_y;
