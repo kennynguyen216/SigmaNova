@@ -250,8 +250,13 @@ float stellar_surface_heat(vec3 p, vec3 sphere_center, float sphere_radius)
     return active_regions * photosphere_band;
 }
 
-float sample_ejecta_density(vec3 p, vec3 sphere_center, float shell_radius, float shell_thickness, float shell_strength)
+// Returns the ejecta density and, via out_shell_depth, the sample's normalized
+// position across the (direction-warped) shell. Both are derived from the same
+// lobe noise, so depth is a free by-product -- the old ejecta_shell_depth()
+// recomputed that noise for every sample.
+float sample_ejecta_density(vec3 p, vec3 sphere_center, float shell_radius, float shell_thickness, float shell_strength, out float out_shell_depth)
 {
+    out_shell_depth = 0.0;
     if (shell_strength <= 0.0) {
         return 0.0;
     }
@@ -268,6 +273,8 @@ float sample_ejecta_density(vec3 p, vec3 sphere_center, float shell_radius, floa
     directional_push = directional_push * directional_push;
     float warped_radius = shell_radius * mix(0.74, 1.28, directional_push);
     float warped_thickness = shell_thickness * mix(0.75, 1.45, fine_lobes);
+
+    out_shell_depth = clamp((distance_center - (warped_radius - warped_thickness)) / (warped_thickness * 2.0), 0.0, 1.0);
 
     float shell_distance = (distance_center - warped_radius) / warped_thickness;
 
@@ -302,21 +309,6 @@ float sample_ejecta_density(vec3 p, vec3 sphere_center, float shell_radius, floa
     float holes = smoothstep(0.34, 0.64, gas_noise_cheap(p * 0.9 + vec3(50.0, 20.0, 5.0), 2));
     float body = max(strands, 0.14) * (1.0 - holes * 0.92);
     return clamp(shell * body * 3.0 * shell_strength, 0.0, 1.0);
-}
-
-float ejecta_shell_depth(vec3 p, vec3 sphere_center, float shell_radius, float shell_thickness)
-{
-    vec3 offset = p - sphere_center;
-    float distance_center = length(offset);
-    vec3 dir = normalize(offset + vec3(0.0001));
-    float lobe_noise = gas_noise_cheap(dir * 2.4 + vec3(41.0, 13.0, 7.0), 3);
-    float fine_lobes = gas_noise_cheap(dir * 6.2 + vec3(4.0, 29.0, 17.0), 2);
-    float directional_push = mix(lobe_noise, fine_lobes, 0.35);
-    directional_push = directional_push * directional_push;
-    float warped_radius = shell_radius * mix(0.74, 1.28, directional_push);
-    float warped_thickness = shell_thickness * mix(0.75, 1.45, fine_lobes);
-
-    return clamp((distance_center - (warped_radius - warped_thickness)) / (warped_thickness * 2.0), 0.0, 1.0);
 }
 
 vec3 ejecta_color(vec3 p, vec3 sphere_center, float shell_depth, float filament_density)
@@ -479,12 +471,20 @@ void main()
                 step_size = max(step_size, shell_thickness * 0.55);
             }
             float density  = sample_density(sample_point, sphere_center, sphere_radius, raggedness);
-            float ejecta_density = sample_ejecta_density(sample_point, sphere_center, shell_radius, shell_thickness, ejecta_strength);
+            float shell_depth;
+            float ejecta_density = sample_ejecta_density(sample_point, sphere_center, shell_radius, shell_thickness, ejecta_strength, shell_depth);
             // Higher density maps to hotter gas colors without washing the core
             // into a flat white blob. The star volume keeps its stellar ramp for
             // its whole life -- remnant colours belong to ejecta_color(), not here.
-            float surface_heat = stellar_surface_heat(sample_point, sphere_center, sphere_radius);
-            surface_heat *= 1.0 - clamp(core_glow + flash_white + mist, 0.0, 1.0);
+            // Surface heat is a photosphere effect: its factor is zero once the
+            // star whitens/collapses/disperses (core_glow/flash/mist), and it is
+            // zero outside the photosphere band anyway, so skip its two noise
+            // octaves in those cases instead of computing and discarding them.
+            float heat_factor = 1.0 - clamp(core_glow + flash_white + mist, 0.0, 1.0);
+            float surface_heat = 0.0;
+            if (heat_factor > 0.001 && core_distance < sphere_radius * 1.2) {
+                surface_heat = stellar_surface_heat(sample_point, sphere_center, sphere_radius) * heat_factor;
+            }
 
             vec3 cool_gas = vec3(0.22, 0.006, 0.00);
             vec3 warm_gas = vec3(0.66, 0.045, 0.00);
@@ -504,16 +504,12 @@ void main()
             vec3 singularity_white = vec3(1.0, 0.96, 0.88);
             // The flash whitens the whole volume, not just the core.
             gas_color = mix(gas_color, singularity_white, clamp(core_glow * core_proximity + flash_white, 0.0, 1.0));
-            float shell_depth = ejecta_shell_depth(sample_point, sphere_center, shell_radius, shell_thickness);
+            // Remnant colour is applied unconditionally: gating it on ejecta_density
+            // was measured slower, because that test diverges within a warp (strand
+            // vs gap at the same step) and the GPU then runs both sides plus branch
+            // overhead -- more costly than the two noise octaves it would save.
             vec3 shell_color = ejecta_color(sample_point, sphere_center, shell_depth, ejecta_density);
-            // Afterglow: the freshly-revealed remnant is still white-hot from the
-            // blast and blazes brighter, then cools into its nebula palette as the
-            // glare recedes.
-            // Remnant emission is now a single coloured strand term: ejecta_color
-            // already carries the line separation + depth ramp, and ejecta_density
-            // is carved (bimodal), so this lights bright strands on black instead
-            // of the additive pile that saturated to peach. afterglow briefly
-            // whitens it right after the reveal, then it cools into its palette.
+            // afterglow briefly whitens the freshly-revealed remnant, then it cools.
             vec3 afterglow_shell = mix(shell_color, vec3(1.0, 0.92, 0.82), afterglow * 0.55);
             vec3 emission = gas_color * density * u_emission_strength * brightness * star_fade;
             emission += flare_patch * surface_heat * density * u_emission_strength * 0.95 * star_fade;
