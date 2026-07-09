@@ -277,19 +277,31 @@ float sample_ejecta_density(vec3 p, vec3 sphere_center, float shell_radius, floa
 
     float shell = exp(-shell_distance * shell_distance);
 
-    // Filament noise: mostly tangent-like detail with a smaller radial term, then
-    // ridged so the remnant becomes bright creases and dark gaps instead of fog.
-    vec3 filament_coord = p * 1.65 + dir * distance_center * 0.22;
-    float n = gas_noise_cheap(filament_coord + vec3(31.0, 7.0, 19.0), 3);
-    float ridge = 1.0 - abs(2.0 * n - 1.0);
-    float broad_n = gas_noise_cheap(p * 0.78 + dir * 1.15 + vec3(2.0, 37.0, 11.0), 2);
-    float broad_ridge = 1.0 - abs(2.0 * broad_n - 1.0);
-    float broad_filaments = pow(broad_ridge, 6.5);
-    float fine_filaments = pow(ridge, 7.0);
-    float filaments = max(broad_filaments, fine_filaments * 0.32);
+    // Domain-warp the sampling frame so filaments curl and flow like gauzy smoke
+    // instead of hard radial ticks. This warp is the single biggest lever between
+    // "spray of spikes" and the soft, wispy NASA-remnant look.
+    vec3 warp = vec3(
+        gas_noise_cheap(p * 1.05 + vec3(3.0, 8.0, 1.0), 2),
+        gas_noise_cheap(p * 1.05 + vec3(9.0, 2.0, 6.0), 2),
+        gas_noise_cheap(p * 1.05 + vec3(4.0, 7.0, 3.0), 2)) - 0.5;
+    vec3 wdir = normalize(dir + warp * 0.8);
 
-    float broken_shell = mix(0.018, 3.1, filaments);
-    return clamp(shell * broken_shell * shell_strength, 0.0, 1.0);
+    // Radial filaments in the warped frame: wdir is (mostly) constant along a
+    // radius so this stays a stretched-outward strand, but the warp bends it into
+    // a flowing wisp. Softer ridge power keeps strands gauzy, not spiky; a slow
+    // radial term breaks them into segments along their length.
+    float ang = gas_noise_cheap(wdir * 4.6 + vec3(31.0, 7.0, 19.0), 3);
+    float finger_ridge = 1.0 - abs(2.0 * ang - 1.0);
+    float radial_break = gas_noise_cheap((p + warp * 0.4) * 1.6 + vec3(3.0, 41.0, 12.0), 2);
+    float filaments = pow(finger_ridge, 2.4) * (0.5 + 0.5 * radial_break);
+    // A dim luminous haze fills the shell so the body glows, bright wispy strands
+    // ride on top, and a separate low-frequency field punches the dark mottled
+    // voids of a real remnant -- rather than uniform black between every strand.
+    // This haze-plus-holes is what makes it read as glowing gas, not matte spikes.
+    float strands = smoothstep(0.10, 0.52, filaments);
+    float holes = smoothstep(0.34, 0.64, gas_noise_cheap(p * 0.9 + vec3(50.0, 20.0, 5.0), 2));
+    float body = max(strands, 0.14) * (1.0 - holes * 0.92);
+    return clamp(shell * body * 3.0 * shell_strength, 0.0, 1.0);
 }
 
 float ejecta_shell_depth(vec3 p, vec3 sphere_center, float shell_radius, float shell_thickness)
@@ -309,36 +321,31 @@ float ejecta_shell_depth(vec3 p, vec3 sphere_center, float shell_radius, float s
 
 vec3 ejecta_color(vec3 p, vec3 sphere_center, float shell_depth, float filament_density)
 {
-    float inner = 1.0 - smoothstep(0.20, 0.58, shell_depth);
-    float middle = smoothstep(0.10, 0.46, shell_depth) * (1.0 - smoothstep(0.58, 0.86, shell_depth));
-    float rim = smoothstep(0.86, 1.0, shell_depth);
-    float filament = smoothstep(0.56, 0.98, filament_density);
-    float hot_thread = pow(filament, 2.2);
     vec3 dir = normalize(p - sphere_center + vec3(0.0001));
-    float color_cells = gas_noise_cheap(p * 0.70 + dir * 1.25 + vec3(6.0, 23.0, 14.0), 3);
-    float rim_breakup = smoothstep(0.42, 0.92, gas_noise_cheap(p * 1.1 + dir * 0.8 + vec3(18.0, 4.0, 27.0), 2));
-    float blue_regions = smoothstep(0.52, 0.86, color_cells);
-    float magenta_regions = smoothstep(0.18, 0.52, 1.0 - abs(color_cells - 0.42) * 2.0);
-    float warm_regions = 1.0 - smoothstep(0.42, 0.78, color_cells);
-    float dark_lanes = pow(1.0 - filament, 2.3) * smoothstep(0.16, 0.78, middle + inner);
+    // Colour hierarchy, not a rainbow: one warm-dominant body + one cool accent.
+    // Warm H-alpha fills the interior (salmon-orange heart deepening to red);
+    // cool O-III is confined to the ionised outer shell, the single cyan accent
+    // that wraps the silhouette. Scattering cyan through the whole body (as the
+    // two-channel version did) reads as busy confetti and loses the structure.
+    vec3 warm = mix(vec3(1.00, 0.52, 0.24), vec3(0.85, 0.20, 0.10), smoothstep(0.10, 0.70, shell_depth));
 
-    vec3 transparent_body = vec3(0.012, 0.002, 0.035);
-    vec3 warm_inner = vec3(0.95, 0.10, 0.015);
-    vec3 magenta_mid = vec3(0.95, 0.03, 1.00);
-    vec3 violet_blue = vec3(0.12, 0.18, 1.00);
-    vec3 cyan_rim = vec3(0.00, 0.72, 1.00);
-    vec3 orange_filament = vec3(1.0, 0.34, 0.06);
-    vec3 blue_filament = vec3(0.10, 0.50, 1.0);
+    // The rim ionisation, broken up by direction-space noise so it stays ragged
+    // (lobes and gaps) instead of a solid painted ring, and reaching a little
+    // past the body so it forms a soft cyan corona.
+    float rim_breakup = smoothstep(0.32, 0.86, gas_noise_cheap(dir * 3.0 + vec3(6.0, 23.0, 14.0), 3));
+    float rim_band = smoothstep(0.58, 0.98, shell_depth) * rim_breakup;
+    vec3 base = mix(warm, vec3(0.10, 0.78, 1.00), rim_band);
 
-    vec3 color = transparent_body;
-    color += warm_inner * inner * (0.04 + warm_regions * 0.10);
-    color += magenta_mid * middle * (0.12 + magenta_regions * 0.82);
-    color += violet_blue * middle * blue_regions * 0.62;
-    color += cyan_rim * rim * rim_breakup * (0.72 + filament * 1.65);
-    color += mix(orange_filament, blue_filament, rim) * hot_thread * 1.22;
-    color += vec3(0.12, 0.02, 0.22) * dark_lanes * 0.30;
-    color *= 1.0 - dark_lanes * 0.72;
-    return color;
+    // A subtle magenta secondary in the mid-body -- a hint of the reference
+    // palette without competing with the warm/cyan read.
+    float magenta_patch = smoothstep(0.60, 0.90, gas_noise_cheap(p * 0.72 + vec3(19.0, 3.0, 27.0), 2))
+                        * smoothstep(0.18, 0.55, shell_depth) * (1.0 - rim_band);
+    base = mix(base, vec3(0.95, 0.12, 0.42), magenta_patch * 0.28);
+
+    // Strand cores carry the light; gaps fall toward black so they read as empty
+    // space, not dim fog.
+    float core = smoothstep(0.45, 0.95, filament_density);
+    return base * (0.05 + core * 1.6);
 }
 
 // How close does the ray pass to the center?
@@ -409,8 +416,13 @@ void main()
     // what set how leisurely the shell grows; the perceived speed doubles as
     // it nears the camera, so keep the curve gentler than feels right on paper.
     float launch = smoothstep(0.0, 1.6, ejecta_age);
-    float shell_radius = 0.3 + 1.6 * launch * pow(ejecta_age * 0.45 + 0.02, 0.45);
-    float shell_thickness = mix(0.12, 0.38, smoothstep(0.0, 4.0, ejecta_age));
+    // Coefficient sets the framed size of the settled remnant: kept below ~1.8
+    // so the whole shell sits in frame with black margin around it, rather than
+    // expanding past the camera into a screen-filling blob.
+    float shell_radius = 0.3 + 0.95 * launch * pow(ejecta_age * 0.45 + 0.02, 0.45);
+    // Thin shell: material concentrated near the front so the remnant reads as
+    // an expanding shell (limb-brightened, hollow) rather than a filled ball.
+    float shell_thickness = mix(0.10, 0.26, smoothstep(0.0, 4.0, ejecta_age));
 
     float sphere_radius = radius_scale;   // nominal radius the density field fades out around
     float star_march_radius = sphere_radius * (0.9 + raggedness);   // matches the density field's maximum warped radius
@@ -497,18 +509,25 @@ void main()
             // Afterglow: the freshly-revealed remnant is still white-hot from the
             // blast and blazes brighter, then cools into its nebula palette as the
             // glare recedes.
-            vec3 afterglow_shell = mix(shell_color, shell_color * vec3(1.08, 0.70, 0.62) + vec3(0.04, 0.008, 0.03), afterglow * 0.18);
-            float filament_boost = smoothstep(0.62, 0.99, ejecta_density);
-            float vein_mask = pow(filament_boost, 2.0);
-            float rim_glow = smoothstep(0.88, 1.0, shell_depth);
+            // Remnant emission is now a single coloured strand term: ejecta_color
+            // already carries the line separation + depth ramp, and ejecta_density
+            // is carved (bimodal), so this lights bright strands on black instead
+            // of the additive pile that saturated to peach. afterglow briefly
+            // whitens it right after the reveal, then it cools into its palette.
+            vec3 afterglow_shell = mix(shell_color, vec3(1.0, 0.92, 0.82), afterglow * 0.55);
             vec3 emission = gas_color * density * u_emission_strength * brightness * star_fade;
             emission += flare_patch * surface_heat * density * u_emission_strength * 0.95 * star_fade;
             emission += singularity_white * (core_glow * 5.0) * pow(core_proximity, 2.0) * density * u_emission_strength;
-            emission += afterglow_shell * ejecta_density * u_emission_strength * mix(0.0, 0.13, ejecta_strength) * (0.035 + filament_boost * 0.22 + vein_mask * 1.65 + afterglow * 0.04);
-            emission += vec3(0.00, 0.75, 1.0) * ejecta_density * rim_glow * u_emission_strength * 0.58 * ejecta_strength;
-            emission += vec3(1.0, 0.30, 0.04) * ejecta_density * vein_mask * u_emission_strength * 0.68 * ejecta_strength;
-            emission += vec3(0.24, 0.72, 1.0) * ejecta_density * vein_mask * rim_glow * u_emission_strength * 0.52 * ejecta_strength;
-            float absorption = (density * u_absorption_strength * absorption_scale) + (ejecta_density * u_absorption_strength * 0.20);
+            emission += afterglow_shell * ejecta_density * u_emission_strength * 0.62 * ejecta_strength;
+            // Cyan rim glow inside the volume: the ionised outer shell emits,
+            // weighted by the soft (haze-inclusive) density toward the rim, so the
+            // corona reads as a continuous luminous edge rather than isolated tufts.
+            float rim_glow = smoothstep(0.60, 1.0, shell_depth);
+            emission += vec3(0.14, 0.72, 1.00) * ejecta_density * rim_glow * u_emission_strength * 0.45 * ejecta_strength;
+            // Higher ejecta absorption makes near strands occlude far ones, so the
+            // remnant reads as layered 3D structure with a darker hollow centre
+            // instead of an additive cotton-candy wash.
+            float absorption = (density * u_absorption_strength * absorption_scale) + (ejecta_density * u_absorption_strength * 0.55);
             accumulated_color += transmittance * emission * step_size;
             transmittance *= exp(-absorption * step_size);
             if (transmittance < 0.01) {
@@ -522,6 +541,14 @@ void main()
     // (transmittance ~ 0), and at the wispy edge it shows through and blends, so the
     // silhouette dissolves into glow instead of ending at a drawn ring.
     accumulated_color += halo_color * transmittance;
+
+    // Remnant cyan corona: a soft analytic ionised halo that blooms outward past
+    // the shell, giving the whole silhouette a radiant glowing edge (the signature
+    // of the reference). Brightest at/inside the rim and fading into black just
+    // outside; added with transmittance so opaque gas occludes it and it glows
+    // through the wispy edge and the dark holes. Gated to the remnant phase.
+    float corona = pow(1.0 - smoothstep(shell_radius * 0.82, shell_radius * 1.55, near_distance), 1.5);
+    accumulated_color += vec3(0.10, 0.62, 1.00) * corona * ejecta_strength * transmittance * 0.6;
 
     // World-space glare front. The detonation's light is modelled as a luminous
     // sphere centred on the remnant whose radius physically travels: it grows
