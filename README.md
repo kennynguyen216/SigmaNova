@@ -6,13 +6,15 @@ The goal is to start from a clean graphics programming foundation, then build to
 
 ## Current Milestone
 
-![Live gas tuning HUD demo](assets/captures/live-tuning-demo.gif)
+![Supernova remnant evolution demo](assets/captures/supernova-remnant-demo.gif)
 
-The current build renders a red-supergiant-inspired volumetric gas cloud above a mesh-rendered spacetime fabric with a live tuning HUD. The fullscreen fragment shader computes camera rays, finds entry/exit bounds through an enlarged gas volume, raymarches through procedural density, applies emission and absorption/transmittance, tone maps the result, and blends a soft halo over the grid.
+[Watch the MP4 demo](assets/captures/supernova-remnant-demo.mp4)
 
-This milestone moves the star away from a clean mathematical sphere edge. The gas boundary now dissolves through a noise-warped density field, so the silhouette reads more like billowing plasma than a shaded ball.
+The current build stages a red-supergiant-inspired volumetric star through a supernova event and into an expanding, cooling remnant. The fullscreen fragment shader computes camera rays, raymarches through procedural density, applies emission and absorption/transmittance, tone maps the result, and blends glow over a procedural starfield.
 
-The latest control pass exposes the gas look as C++-owned shader uniforms and adds an on-screen HUD for live tuning. Keyboard controls can adjust emission, absorption, edge raggedness, noise speed, noise scale, and halo strength while the program is running.
+The latest milestone focuses on visual storytelling: the star becomes unstable, collapses into a bright flash, then reveals a translucent nebula-like remnant. The remnant cools over time from warm ejecta into magenta, violet, and cyan ionized gas with darker cavities and lacy filament structure.
+
+Live keyboard tuning still exists for shader development, but the HUD hides during the supernova event so captures can focus on the explosion sequence.
 
 ## Rendering Notes
 
@@ -122,14 +124,25 @@ Current controls:
 - `O/P` - noise scale
 - `H/J` - halo strength
 
+### 8. Supernova Event And Cooling Remnant
+
+![Supernova remnant evolution demo](assets/captures/supernova-remnant-demo.gif)
+
+[Watch the MP4 demo](assets/captures/supernova-remnant-demo.mp4)
+
+This milestone turns the renderer into a staged supernova sequence. Pressing `SPACE` triggers the event: the red supergiant destabilizes, collapses, flashes, and transitions into an expanding remnant.
+
+The remnant is still procedural and shader-driven. The ejecta shell uses warped bounds, sparse filament density, evolving color, and transmittance so it can move from a hot compact blast into a cooler, translucent nebula. The color arc now shifts from warm salmon/orange ejecta into magenta, violet, and cyan ionized gas while darker internal cavities remain visible.
+
 ## Next Up
 
-Chapter 6 is focused on animated fields and live tuning. The next work should build on the HUD and push the gas motion toward a more intentional red-supergiant look:
+The project is now focused on polishing the supernova sequence as a complete visual scene:
 
-- add saved presets for good-looking gas states
-- add optional HUD toggling so captures can hide debug controls
-- push the gas toward large red-supergiant convection cells: dark red lanes, orange body, and yellow-hot patches
-- capture a fresh GIF once the motion reads well
+- refine the remnant color timing so the best magenta/cyan phase appears earlier and lasts longer
+- add a thin leading shock front ahead of the main ejecta shell
+- add a reset/toggle workflow for repeated demo captures
+- add a bloom/FBO pass so the flash, rim, and filaments glow more cinematically
+- keep the black-hole/accretion-disk idea as a later branch, not the immediate milestone
 
 ## Performance Notes
 
@@ -234,3 +247,12 @@ Set up the project from scratch and prove the toolchain works:
 - Added keyboard tuning for emission, absorption, edge raggedness, noise speed, noise scale, and halo strength.
 - Added a lightweight in-window HUD with labeled bars and key pairs for live gas tuning.
 - Captured the live tuning HUD demo GIF.
+
+### 2026-07-09
+
+- Added a staged supernova event triggered with `SPACE`.
+- Hid the live-tuning HUD during the event so the explosion can take over the full viewport.
+- Added red-supergiant instability, collapse, flash, and remnant reveal phases.
+- Upgraded the remnant into an expanding cooling nebula with cyan ionized edges, magenta/violet gas, dark internal cavities, and sparse filament structure.
+- Added procedural starfield depth behind the event.
+- Captured the supernova remnant evolution GIF and MP4 demo.
