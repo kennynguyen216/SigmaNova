@@ -311,28 +311,39 @@ float sample_ejecta_density(vec3 p, vec3 sphere_center, float shell_radius, floa
     return clamp(shell * body * 3.0 * shell_strength, 0.0, 1.0);
 }
 
-vec3 ejecta_color(vec3 p, vec3 sphere_center, float shell_depth, float filament_density)
+// cooling (0..1) ages the remnant: an early hot nebula recombines from warm
+// H-alpha through a magenta/purple mid phase into a cool, faint blue late phase.
+vec3 ejecta_color(vec3 p, vec3 sphere_center, float shell_depth, float filament_density, float cooling)
 {
     vec3 dir = normalize(p - sphere_center + vec3(0.0001));
     // Colour hierarchy, not a rainbow: one warm-dominant body + one cool accent.
     // Warm H-alpha fills the interior (salmon-orange heart deepening to red);
     // cool O-III is confined to the ionised outer shell, the single cyan accent
-    // that wraps the silhouette. Scattering cyan through the whole body (as the
-    // two-channel version did) reads as busy confetti and loses the structure.
+    // that wraps the silhouette.
     vec3 warm = mix(vec3(1.00, 0.52, 0.24), vec3(0.85, 0.20, 0.10), smoothstep(0.10, 0.70, shell_depth));
+    // Age the body: warm -> purple -> deep blue as the gas cools and recombines.
+    vec3 aged = mix(vec3(0.52, 0.10, 0.66), vec3(0.10, 0.16, 0.72), cooling);
+    vec3 body = mix(warm, aged, cooling * 0.85);
 
     // The rim ionisation, broken up by direction-space noise so it stays ragged
-    // (lobes and gaps) instead of a solid painted ring, and reaching a little
-    // past the body so it forms a soft cyan corona.
+    // instead of a painted ring. Its band thins with age (the shock front cools
+    // to a narrower ionised rind).
     float rim_breakup = smoothstep(0.32, 0.86, gas_noise_cheap(dir * 3.0 + vec3(6.0, 23.0, 14.0), 3));
-    float rim_band = smoothstep(0.58, 0.98, shell_depth) * rim_breakup;
-    vec3 base = mix(warm, vec3(0.10, 0.78, 1.00), rim_band);
+    float rim_lo = mix(0.58, 0.80, cooling);
+    float rim_band = smoothstep(rim_lo, 0.98, shell_depth) * rim_breakup;
+    vec3 base = mix(body, vec3(0.10, 0.78, 1.00), rim_band);
 
-    // A subtle magenta secondary in the mid-body -- a hint of the reference
-    // palette without competing with the warm/cyan read.
+    // Magenta secondary peaks through the mid phase -- the beauty stage where the
+    // channels separate most strongly -- and fades again as the body goes blue.
+    float mid_phase = cooling * (1.0 - cooling) * 4.0;
     float magenta_patch = smoothstep(0.60, 0.90, gas_noise_cheap(p * 0.72 + vec3(19.0, 3.0, 27.0), 2))
                         * smoothstep(0.18, 0.55, shell_depth) * (1.0 - rim_band);
-    base = mix(base, vec3(0.95, 0.12, 0.42), magenta_patch * 0.28);
+    base = mix(base, vec3(0.95, 0.12, 0.42), magenta_patch * (0.28 + 0.4 * mid_phase));
+
+    // A few hottest strand cores keep glowing orange even as the body cools, so
+    // an aged remnant is dark blue gas threaded with surviving warm filaments.
+    float hot_core = smoothstep(0.82, 1.0, filament_density);
+    base = mix(base, vec3(1.00, 0.46, 0.12), hot_core * (0.35 + 0.35 * (1.0 - cooling)));
 
     // Strand cores carry the light; gaps fall toward black so they read as empty
     // space, not dim fog.
@@ -400,6 +411,12 @@ void main()
     remnant_reveal *= remnant_reveal;
     float ejecta_age = max(u_event_time - RECEDE_END, 0.0);
     float ejecta_strength = remnant_reveal;
+    // Cooling clock for the remnant's evolution: 0 = fresh hot nebula,
+    // 1 = old faint blue shell. Drives the palette and luminosity decay so the
+    // remnant ages instead of just becoming a bigger peach cloud. Tuned to reach
+    // the magenta/purple beauty phase early (~age 3) so viewers see the best
+    // version without waiting for the full lifecycle.
+    float cooling = smoothstep(1.5, 5.5, ejecta_age);
     // The raw Sedov curve (t^0.42) has a near-vertical slope at t = 0, which
     // made the shell pop to full size the frame it appeared. The launch ease
     // throttles early growth so the shell visibly swells out of the
@@ -410,8 +427,12 @@ void main()
     float launch = smoothstep(0.0, 1.6, ejecta_age);
     // Coefficient sets the framed size of the settled remnant: kept below ~1.8
     // so the whole shell sits in frame with black margin around it, rather than
-    // expanding past the camera into a screen-filling blob.
-    float shell_radius = 0.3 + 0.95 * launch * pow(ejecta_age * 0.45 + 0.02, 0.45);
+    // expanding past the camera into a screen-filling blob. Expansion also eases
+    // off once cooling sets in, so the remnant lingers near its beauty size for
+    // viewing instead of thinning into a huge faint cloud.
+    float expansion = pow(ejecta_age * 0.45 + 0.02, 0.45);
+    expansion = mix(expansion, expansion * 0.7 + 0.42, cooling);
+    float shell_radius = 0.3 + 0.95 * launch * expansion;
     // Thin shell: material concentrated near the front so the remnant reads as
     // an expanding shell (limb-brightened, hollow) rather than a filled ball.
     float shell_thickness = mix(0.10, 0.26, smoothstep(0.0, 4.0, ejecta_age));
@@ -508,22 +529,29 @@ void main()
             // was measured slower, because that test diverges within a warp (strand
             // vs gap at the same step) and the GPU then runs both sides plus branch
             // overhead -- more costly than the two noise octaves it would save.
-            vec3 shell_color = ejecta_color(sample_point, sphere_center, shell_depth, ejecta_density);
+            vec3 shell_color = ejecta_color(sample_point, sphere_center, shell_depth, ejecta_density, cooling);
             // afterglow briefly whitens the freshly-revealed remnant, then it cools.
             vec3 afterglow_shell = mix(shell_color, vec3(1.0, 0.92, 0.82), afterglow * 0.55);
             vec3 emission = gas_color * density * u_emission_strength * brightness * star_fade;
             emission += flare_patch * surface_heat * density * u_emission_strength * 0.95 * star_fade;
             emission += singularity_white * (core_glow * 5.0) * pow(core_proximity, 2.0) * density * u_emission_strength;
-            emission += afterglow_shell * ejecta_density * u_emission_strength * 0.62 * ejecta_strength;
+            // Age-based luminosity decay: the diffuse haze dims strongly while the
+            // bright filaments persist, so a late remnant is dark gas threaded with
+            // a few surviving glowing veins rather than a uniformly fading cloud.
+            float vein = smoothstep(0.42, 0.90, ejecta_density);
+            float age_fade = mix(1.0 - cooling * 0.62, 1.0 - cooling * 0.15, vein);
+            emission += afterglow_shell * ejecta_density * u_emission_strength * 0.62 * age_fade * ejecta_strength;
             // Cyan rim glow inside the volume: the ionised outer shell emits,
-            // weighted by the soft (haze-inclusive) density toward the rim, so the
-            // corona reads as a continuous luminous edge rather than isolated tufts.
-            float rim_glow = smoothstep(0.60, 1.0, shell_depth);
-            emission += vec3(0.14, 0.72, 1.00) * ejecta_density * rim_glow * u_emission_strength * 0.45 * ejecta_strength;
+            // weighted by the soft (haze-inclusive) density toward the rim. The band
+            // thins with age but the rim stays cyan, so the silhouette keeps a crisp
+            // ionised edge as the body cools.
+            float rim_glow = smoothstep(mix(0.60, 0.82, cooling), 1.0, shell_depth);
+            emission += vec3(0.14, 0.72, 1.00) * ejecta_density * rim_glow * u_emission_strength * mix(0.45, 0.55, cooling) * ejecta_strength;
             // Higher ejecta absorption makes near strands occlude far ones, so the
             // remnant reads as layered 3D structure with a darker hollow centre
-            // instead of an additive cotton-candy wash.
-            float absorption = (density * u_absorption_strength * absorption_scale) + (ejecta_density * u_absorption_strength * 0.55);
+            // instead of an additive cotton-candy wash. It thins with age so the
+            // old remnant becomes translucent -- you see through it to the far side.
+            float absorption = (density * u_absorption_strength * absorption_scale) + (ejecta_density * u_absorption_strength * mix(0.55, 0.30, cooling));
             accumulated_color += transmittance * emission * step_size;
             transmittance *= exp(-absorption * step_size);
             if (transmittance < 0.01) {
