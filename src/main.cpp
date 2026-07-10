@@ -18,10 +18,15 @@ namespace {
 constexpr int window_width = 800;
 constexpr int window_height = 600;
 constexpr float camera_fov_degrees = 55.0f;
-constexpr float event_flash_start = 2.8f;
+constexpr float event_swell_duration = 2.0f;
+constexpr float event_collapse_duration = 0.48f;
+constexpr float event_singularity_hold_duration = 0.4f;
+constexpr float event_flash_start = event_swell_duration + event_collapse_duration + event_singularity_hold_duration;
 // When the world-space glare front reaches the camera. Must match GLARE_HIT in
-// fullscreen.frag (FLASH_START + 0.95): the shake is the light hitting us.
-constexpr float event_glare_hit = event_flash_start + 0.95f;
+// fullscreen.frag (FLASH_START + 0.42): the shake is the light hitting us.
+constexpr float event_glare_hit = event_flash_start + 0.42f;
+constexpr float event_recede_start = event_glare_hit + 0.28f;
+constexpr float event_recede_end = event_recede_start + 2.2f; // keep in sync with RECEDE_END in fullscreen.frag
 constexpr bool show_fabric_grid = false;
 float gas_noise_speed = 1.0f;
 float gas_noise_scale = 1.0f;
@@ -87,6 +92,33 @@ float event_camera_pull_distance(float event_time)
     // remnant expands so its scale stays readable without fighting user input.
     float reveal = smoothstep(event_flash_start + 0.25f, event_flash_start + 6.5f, event_time);
     return 2.25f * reveal;
+}
+
+float event_speed_blur_strength(float event_time)
+{
+    float blast_on = smoothstep(event_flash_start - 0.02f, event_flash_start + 0.12f, event_time);
+    float blast_off = 1.0f - smoothstep(event_flash_start + 0.22f, event_flash_start + 0.48f, event_time);
+    return 0.65f * blast_on * blast_off;
+}
+
+float event_bloom_strength(float event_time)
+{
+    // Bloom is beautiful on the blast and remnant, but during the whiteout
+    // recovery it reads as leftover blur. Suppress it only while the screen is
+    // fading from white, then ease it back once the remnant has taken over.
+    float suppress_on = smoothstep(event_glare_hit - 0.08f, event_glare_hit + 0.04f, event_time);
+    float suppress_off = smoothstep(event_recede_end + 0.08f, event_recede_end + 0.55f, event_time);
+    float suppression = suppress_on * (1.0f - suppress_off);
+    return 0.85f * (1.0f - suppression);
+}
+
+float event_whiteout_strength(float event_time)
+{
+    // Grow into a full-screen white flash, hold briefly, then fade the screen
+    // overlay itself. This is the flashbang recovery: not a longer white hold.
+    float engulf = smoothstep(event_flash_start + 0.12f, event_glare_hit, event_time);
+    float recover = 1.0f - smoothstep(event_recede_start, event_recede_end, event_time);
+    return engulf * recover;
 }
 
 float event_flash_hud_visibility(float event_time)
@@ -255,6 +287,23 @@ std::vector<float> make_fabric_grid(float size, int divisions)
 
     return vertices;
 }
+
+void resize_color_texture(unsigned int texture, int width, int height)
+{
+    glBindTexture(GL_TEXTURE_2D, texture);
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA16F, width, height, 0, GL_RGBA, GL_FLOAT, nullptr);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+}
+
+void check_framebuffer(const char* name)
+{
+    if (glCheckFramebufferStatus(GL_FRAMEBUFFER) != GL_FRAMEBUFFER_COMPLETE) {
+        std::cout << "Framebuffer incomplete: " << name << std::endl;
+    }
+}
 }
 
 int main()
@@ -320,6 +369,17 @@ int main()
     shader fullscreen_shader("shaders/fullscreen.vert", "shaders/fullscreen.frag");
     shader grid_shader("shaders/grid.vert", "shaders/grid.frag");
     shader hud_shader("shaders/hud.vert", "shaders/hud.frag");
+    shader bright_shader("shaders/fullscreen.vert", "shaders/bright_extract.frag");
+    shader blur_shader("shaders/fullscreen.vert", "shaders/blur.frag");
+    shader bloom_composite_shader("shaders/fullscreen.vert", "shaders/bloom_composite.frag");
+
+    bright_shader.use();
+    bright_shader.set_int("u_scene_texture", 0);
+    blur_shader.use();
+    blur_shader.set_int("u_image", 0);
+    bloom_composite_shader.use();
+    bloom_composite_shader.set_int("u_scene_texture", 0);
+    bloom_composite_shader.set_int("u_bloom_texture", 1);
 
     std::vector<float> grid_vertices = make_fabric_grid(9.0f, 36);
     unsigned int grid_vbo;
@@ -347,6 +407,56 @@ int main()
 
     glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, 2 * sizeof(float), (void*)0);
     glEnableVertexAttribArray(0);
+
+    unsigned int scene_fbo;
+    unsigned int scene_texture;
+    unsigned int scene_depth_rbo;
+    unsigned int bright_fbo;
+    unsigned int bright_texture;
+    unsigned int blur_fbo[2];
+    unsigned int blur_texture[2];
+
+    glGenFramebuffers(1, &scene_fbo);
+    glGenTextures(1, &scene_texture);
+    glGenRenderbuffers(1, &scene_depth_rbo);
+    glGenFramebuffers(1, &bright_fbo);
+    glGenTextures(1, &bright_texture);
+    glGenFramebuffers(2, blur_fbo);
+    glGenTextures(2, blur_texture);
+
+    int bloom_target_width = 0;
+    int bloom_target_height = 0;
+
+    auto resize_bloom_targets = [&](int width, int height) {
+        if (width <= 0 || height <= 0 || (width == bloom_target_width && height == bloom_target_height)) {
+            return;
+        }
+
+        bloom_target_width = width;
+        bloom_target_height = height;
+
+        resize_color_texture(scene_texture, width, height);
+        glBindFramebuffer(GL_FRAMEBUFFER, scene_fbo);
+        glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, scene_texture, 0);
+        glBindRenderbuffer(GL_RENDERBUFFER, scene_depth_rbo);
+        glRenderbufferStorage(GL_RENDERBUFFER, GL_DEPTH24_STENCIL8, width, height);
+        glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_DEPTH_STENCIL_ATTACHMENT, GL_RENDERBUFFER, scene_depth_rbo);
+        check_framebuffer("scene");
+
+        resize_color_texture(bright_texture, width, height);
+        glBindFramebuffer(GL_FRAMEBUFFER, bright_fbo);
+        glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, bright_texture, 0);
+        check_framebuffer("bright extract");
+
+        for (int i = 0; i < 2; ++i) {
+            resize_color_texture(blur_texture[i], width, height);
+            glBindFramebuffer(GL_FRAMEBUFFER, blur_fbo[i]);
+            glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, blur_texture[i], 0);
+            check_framebuffer("blur");
+        }
+
+        glBindFramebuffer(GL_FRAMEBUFFER, 0);
+    };
 
     glfwSetFramebufferSizeCallback(window, framebuffer_size_callback);
 
@@ -403,7 +513,10 @@ int main()
         int framebuffer_width = 0;
         int framebuffer_height = 0;
         glfwGetFramebufferSize(window, &framebuffer_width, &framebuffer_height);
+        resize_bloom_targets(framebuffer_width, framebuffer_height);
 
+        glBindFramebuffer(GL_FRAMEBUFFER, scene_fbo);
+        glViewport(0, 0, framebuffer_width, framebuffer_height);
         glClearColor(0.002f, 0.004f, 0.012f, 1.0f);
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
@@ -460,6 +573,59 @@ int main()
         glDrawElements(GL_TRIANGLES, 6, GL_UNSIGNED_INT, 0);
 
         glDisable(GL_BLEND);
+
+        glBindFramebuffer(GL_FRAMEBUFFER, bright_fbo);
+        glViewport(0, 0, framebuffer_width, framebuffer_height);
+        glClear(GL_COLOR_BUFFER_BIT);
+        bright_shader.use();
+        bright_shader.set_vec2("u_resolution", static_cast<float>(framebuffer_width), static_cast<float>(framebuffer_height));
+        bright_shader.set_float("u_threshold", 0.48f);
+        bright_shader.set_float("u_soft_knee", 0.22f);
+        glActiveTexture(GL_TEXTURE0);
+        glBindTexture(GL_TEXTURE_2D, scene_texture);
+        glBindVertexArray(vao);
+        glDrawElements(GL_TRIANGLES, 6, GL_UNSIGNED_INT, 0);
+
+        blur_shader.use();
+        blur_shader.set_vec2("u_texel_size", 1.0f / static_cast<float>(framebuffer_width), 1.0f / static_cast<float>(framebuffer_height));
+        bool horizontal_blur = true;
+        bool first_blur_pass = true;
+        int last_blur_target = 0;
+        constexpr int blur_pass_count = 8;
+
+        for (int pass = 0; pass < blur_pass_count; ++pass) {
+            int target = horizontal_blur ? 0 : 1;
+            glBindFramebuffer(GL_FRAMEBUFFER, blur_fbo[target]);
+            glClear(GL_COLOR_BUFFER_BIT);
+            blur_shader.set_int("u_horizontal", horizontal_blur ? 1 : 0);
+            glActiveTexture(GL_TEXTURE0);
+            glBindTexture(GL_TEXTURE_2D, first_blur_pass ? bright_texture : blur_texture[1 - target]);
+            glBindVertexArray(vao);
+            glDrawElements(GL_TRIANGLES, 6, GL_UNSIGNED_INT, 0);
+
+            last_blur_target = target;
+            horizontal_blur = !horizontal_blur;
+            first_blur_pass = false;
+        }
+
+        glBindFramebuffer(GL_FRAMEBUFFER, 0);
+        glViewport(0, 0, framebuffer_width, framebuffer_height);
+        glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+        glDisable(GL_DEPTH_TEST);
+        glDisable(GL_BLEND);
+
+        bloom_composite_shader.use();
+        bloom_composite_shader.set_vec2("u_resolution", static_cast<float>(framebuffer_width), static_cast<float>(framebuffer_height));
+        bloom_composite_shader.set_float("u_bloom_strength", supernova_event_active ? event_bloom_strength(event_time) : 0.85f);
+        bloom_composite_shader.set_float("u_speed_blur_strength", supernova_event_active ? event_speed_blur_strength(event_time) : 0.0f);
+        bloom_composite_shader.set_float("u_whiteout_strength", supernova_event_active ? event_whiteout_strength(event_time) : 0.0f);
+        glActiveTexture(GL_TEXTURE0);
+        glBindTexture(GL_TEXTURE_2D, scene_texture);
+        glActiveTexture(GL_TEXTURE1);
+        glBindTexture(GL_TEXTURE_2D, blur_texture[last_blur_target]);
+        glBindVertexArray(vao);
+        glDrawElements(GL_TRIANGLES, 6, GL_UNSIGNED_INT, 0);
+        glActiveTexture(GL_TEXTURE0);
 
         auto draw_hud_rect = [&](float left, float top, float width, float height, glm::vec4 color) {
             float right = left + width;
@@ -547,10 +713,20 @@ int main()
     glDeleteBuffers(1, &grid_vbo);
     glDeleteBuffers(1, &hud_vbo);
     glDeleteBuffers(1, &ebo);
+    glDeleteFramebuffers(1, &scene_fbo);
+    glDeleteFramebuffers(1, &bright_fbo);
+    glDeleteFramebuffers(2, blur_fbo);
+    glDeleteTextures(1, &scene_texture);
+    glDeleteTextures(1, &bright_texture);
+    glDeleteTextures(2, blur_texture);
+    glDeleteRenderbuffers(1, &scene_depth_rbo);
     glDeleteProgram(sky_shader.id);
     glDeleteProgram(fullscreen_shader.id);
     glDeleteProgram(grid_shader.id);
     glDeleteProgram(hud_shader.id);
+    glDeleteProgram(bright_shader.id);
+    glDeleteProgram(blur_shader.id);
+    glDeleteProgram(bloom_composite_shader.id);
     glfwDestroyWindow(window);
     glfwTerminate();
 

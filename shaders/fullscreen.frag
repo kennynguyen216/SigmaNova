@@ -26,20 +26,21 @@ uniform float u_event_time;
 // retiming the sequence means editing only these constants.
 const float SWELL_DURATION = 2.0;
 const float COLLAPSE_START = SWELL_DURATION;
-const float COLLAPSE_DURATION = 0.8;
+const float COLLAPSE_DURATION = 0.48;
 const float COLLAPSE_END = COLLAPSE_START + COLLAPSE_DURATION;
-const float FLASH_START = COLLAPSE_END;
-const float FLASH_DURATION = 0.45;   // the burst expands to full size this fast
+const float SINGULARITY_HOLD_DURATION = 0.4;
+const float FLASH_START = COLLAPSE_END + SINGULARITY_HOLD_DURATION;
+const float FLASH_DURATION = 0.16;   // the burst expands to full size this fast
 const float FLASH_END = FLASH_START + FLASH_DURATION;
 // World-space glare front choreography. The light physically travels: slow
 // creep, hard acceleration, slams through the camera (whiteout), holds a
-// blind beat, then recedes back onto the remnant to reveal it.
-// NOTE: GLARE_HIT must stay in sync with event_glare_hit_delay in main.cpp
+// blind beat, then fades in place to reveal the remnant.
+// NOTE: GLARE_HIT must stay in sync with event_glare_hit in main.cpp
 // (the camera shake fires when the front hits).
-const float GLARE_CREEP_END = FLASH_START + 0.55; // slow-burn growth ends
-const float GLARE_HIT = FLASH_START + 0.95;       // front reaches the camera
-const float RECEDE_START = GLARE_HIT + 0.35;      // blind beat, then pullback
-const float RECEDE_END = RECEDE_START + 1.35;     // glare fully returned home
+const float GLARE_CREEP_END = FLASH_START + 0.16; // slow-burn growth ends
+const float GLARE_HIT = FLASH_START + 0.42;       // front reaches the camera
+const float RECEDE_START = GLARE_HIT + 0.28;      // blind beat, then flashbang-style fade
+const float RECEDE_END = RECEDE_START + 2.2;      // slow cinematic reveal fadeout
 const float MIST_END = RECEDE_END; // remnant is settled right as it is revealed
 
 struct EventState {
@@ -49,7 +50,7 @@ struct EventState {
     float flash;        // pulse: snaps to 1 at detonation, decays as the mist takes over
     float mist;         // 0 -> 1 as the glare fades into colourful gaseous ejecta
     float glare_grow;   // 0 -> 1 light front expanding outward toward the camera
-    float glare_recede; // 0 -> 1 front pulling back from the camera onto the remnant
+    float glare_recede; // 0 -> 1 whiteout fading away from the camera
     float afterglow;    // remnant heat left by the blast: peaks at the hit, cools to 0
 };
 
@@ -58,9 +59,9 @@ EventState evaluate_event()
     EventState s;
     s.swell = u_event_active * smoothstep(0.0, SWELL_DURATION, u_event_time);
     float infall = u_event_active * smoothstep(COLLAPSE_START, COLLAPSE_END, u_event_time);
-    // Squaring makes the infall start gently and accelerate, the way
-    // gravitational collapse should feel -- slow give, then a plunge.
-    s.collapse = infall * infall;
+    // Cubing makes the infall start gently and then snap down hard, so the
+    // star visibly crushes into a tiny core right before detonation.
+    s.collapse = infall * infall * infall;
     // The flash snaps on almost instantly, rides through the burst expansion,
     // then hands off: mist rises on exactly the curve the flash decays on.
     float detonation = u_event_active * smoothstep(FLASH_START, FLASH_START + 0.08, u_event_time);
@@ -75,11 +76,11 @@ EventState evaluate_event()
     s.mist = settle;
     // Glare front: cubed so it creeps outward slowly, then accelerates into the
     // camera -- the "it's coming... it's HERE" beat. Recede is a plain ease back.
-    s.glare_grow = pow(u_event_active * smoothstep(FLASH_START, GLARE_HIT, u_event_time), 3.0);
-    s.glare_recede = u_event_active * smoothstep(RECEDE_START, RECEDE_END, u_event_time);
-    // Afterglow rides up with the hit, survives the glare pullback, then cools
-    // after the remnant is revealed. This keeps the remnant incandescent when
-    // the white front collapses back onto the singularity.
+    s.glare_grow = pow(u_event_active * smoothstep(FLASH_START, GLARE_HIT, u_event_time), 1.35);
+    float recede_t = (u_event_time - RECEDE_START) / (RECEDE_END - RECEDE_START);
+    s.glare_recede = u_event_active * clamp(recede_t, 0.0, 1.0);
+    // Afterglow rides up with the hit, survives the glare fade, then cools
+    // after the remnant is revealed.
     float heat_on = u_event_active * smoothstep(FLASH_START + 0.3, GLARE_HIT, u_event_time);
     float remnant_cooling = smoothstep(RECEDE_END, RECEDE_END + 2.2, u_event_time);
     s.afterglow = heat_on * (1.0 - remnant_cooling);
@@ -388,9 +389,9 @@ void main()
     // near-spherical proto-singularity -- small, bright, and white-hot, the
     // loaded spring the accretion disk will spew from. Each knob mixes from
     // its swollen value so the phases chain.
-    radius_scale = mix(radius_scale, 0.22, event.collapse);
-    brightness = mix(brightness, 1.15, event.collapse);
-    raggedness = mix(raggedness, u_edge_raggedness * 0.35, event.collapse);
+    radius_scale = mix(radius_scale, 0.06, event.collapse);
+    brightness = mix(brightness, 1.55, event.collapse);
+    raggedness = mix(raggedness, u_edge_raggedness * 0.10, event.collapse);
     // Detonation: the flash pulse stabs the core white-hot, but the star
     // volume does NOT re-inflate afterwards -- the explosion is carried by
     // the glare front and then the ejecta shell. What survives here is the
@@ -398,18 +399,21 @@ void main()
     // used to re-expand into a purple-recoloured mist ball that fought the
     // ejecta shell for the same space.)
     brightness = mix(brightness, 3.4, event.flash);
-    float star_fade = 1.0 - 0.85 * event.mist; // singularity ember dims, never fully dies
-    float core_glow = event.collapse * (1.0 - 0.8 * event.mist); // white core dims once spent
+    float star_spent = u_event_active * smoothstep(FLASH_START + 0.03, FLASH_START + 0.18, u_event_time);
+    float star_fade = 1.0 - star_spent; // no orange leftover star after detonation
+    float core_glow = event.collapse * (1.0 - star_spent); // white core extinguishes as ejecta takes over
     float flash_white = event.flash;
     float mist = event.mist;
     float afterglow = event.afterglow;
     float absorption_scale = mix(1.0, 0.55, mist); // mist is translucent
-    // Quick fade-in: the shell must become visible while it is still small,
-    // otherwise it materialises already mid-sized and reads as a glitch-pop.
-    // The slow part of the entrance is the radius growth, not the opacity.
-    float remnant_reveal = smoothstep(RECEDE_END, RECEDE_END + 0.45, u_event_time);
-    remnant_reveal *= remnant_reveal;
-    float ejecta_age = max(u_event_time - RECEDE_END, 0.0);
+    // The remnant forms entirely *behind* the peak-white frame: it ramps up
+    // while the screen is blown out (so the buildup is invisible) and reaches
+    // full opacity at RECEDE_START -- the instant the whiteout begins to fade.
+    // From there the entire recede is pure reveal, lifting the white off a
+    // remnant that is already 100% there. This is the whole fix for the
+    // flashbang pop-in, so keep the reveal COMPLETING at/before RECEDE_START.
+    float remnant_reveal = smoothstep(GLARE_HIT - 0.2, RECEDE_START, u_event_time);
+    float ejecta_age = max(u_event_time - (GLARE_HIT + 0.08), 0.0);
     float ejecta_strength = remnant_reveal;
     // Cooling clock for the remnant's evolution: 0 = fresh hot nebula,
     // 1 = old faint blue shell. Drives the palette and luminosity decay so the
@@ -417,20 +421,22 @@ void main()
     // the magenta/purple beauty phase early (~age 3) so viewers see the best
     // version without waiting for the full lifecycle.
     float cooling = smoothstep(1.5, 5.5, ejecta_age);
-    // The raw Sedov curve (t^0.42) has a near-vertical slope at t = 0, which
-    // made the shell pop to full size the frame it appeared. The launch ease
-    // throttles early growth so the shell visibly swells out of the
-    // singularity, then hands over to the coasting expansion.
-    // Tuning: the 1.6s launch window and the 0.45 time-scale inside pow() are
-    // what set how leisurely the shell grows; the perceived speed doubles as
-    // it nears the camera, so keep the curve gentler than feels right on paper.
-    float launch = smoothstep(0.0, 1.6, ejecta_age);
+    // Launch is synced to the whiteout, NOT the shell's age: the shell inflates
+    // to its revealed size entirely *behind the flash and full whiteout*
+    // (FLASH_START -> RECEDE_START), so the instant the white starts to lift the
+    // remnant is already at size. Doing this fast is free -- nothing is visible
+    // during that window. The old age-based launch let the shell keep swelling
+    // out in full view after the flash, which read as the remnant "arriving" as
+    // a separate beat instead of simply being uncovered by the fading white.
+    float launch = smoothstep(FLASH_START, RECEDE_START, u_event_time);
     // Coefficient sets the framed size of the settled remnant: kept below ~1.8
     // so the whole shell sits in frame with black margin around it, rather than
-    // expanding past the camera into a screen-filling blob. Expansion also eases
-    // off once cooling sets in, so the remnant lingers near its beauty size for
-    // viewing instead of thinning into a huge faint cloud.
-    float expansion = pow(ejecta_age * 0.45 + 0.02, 0.45);
+    // expanding past the camera into a screen-filling blob. The base offset and
+    // shallower time-scale mean the shell is already ~85% of its settled size at
+    // reveal, so post-reveal expansion is a gentle Sedov drift (breathing
+    // outward), not a visible growth spurt. Eases off further once cooling sets
+    // in so the remnant lingers near its beauty size for viewing.
+    float expansion = pow(ejecta_age * 0.30 + 0.55, 0.42);
     expansion = mix(expansion, expansion * 0.7 + 0.42, cooling);
     float shell_radius = 0.3 + 0.95 * launch * expansion;
     // Thin shell: material concentrated near the front so the remnant reads as
@@ -459,7 +465,7 @@ void main()
     // out fully during the flash, so the aura tracks the object's heat.
     float halo_heat = clamp(core_glow + flash_white, 0.0, 1.0);
     vec3 halo_tint = mix(vec3(0.9, 0.16, 0.03), vec3(1.0, 0.88, 0.72), halo_heat);
-    vec3 halo_color = halo_tint * halo * u_halo_strength * brightness * (1.0 + core_glow * 1.5 + flash_white * 1.2);
+    vec3 halo_color = halo_tint * halo * u_halo_strength * brightness * (1.0 + core_glow * 1.5 + flash_white * 1.2) * star_fade;
 
     vec3 accumulated_color = vec3(0.0);
     float transmittance = 1.0;
@@ -519,9 +525,9 @@ void main()
             // Collapse core: proximity to the center whitens the gas itself and
             // adds a strong bloom, so the crushed star reads as a brilliant
             // white-hot point of light rather than a dim red ember. The kernel
-            // extends past the warped surface (1.2R) so even the rim whitens
-            // and no dark red shell survives around the singularity.
-            float core_proximity = 1.0 - smoothstep(0.0, sphere_radius * 1.2, core_distance);
+            // stays tighter than the collapsed volume so the pre-flash beat reads
+            // as a tiny white-hot core instead of a large glowing ball.
+            float core_proximity = 1.0 - smoothstep(0.0, sphere_radius * 0.55, core_distance);
             vec3 singularity_white = vec3(1.0, 0.96, 0.88);
             // The flash whitens the whole volume, not just the core.
             gas_color = mix(gas_color, singularity_white, clamp(core_glow * core_proximity + flash_white, 0.0, 1.0));
@@ -534,7 +540,7 @@ void main()
             vec3 afterglow_shell = mix(shell_color, vec3(1.0, 0.92, 0.82), afterglow * 0.55);
             vec3 emission = gas_color * density * u_emission_strength * brightness * star_fade;
             emission += flare_patch * surface_heat * density * u_emission_strength * 0.95 * star_fade;
-            emission += singularity_white * (core_glow * 5.0) * pow(core_proximity, 2.0) * density * u_emission_strength;
+            emission += singularity_white * (core_glow * 5.0) * pow(core_proximity, 2.0) * density * u_emission_strength * star_fade;
             // Age-based luminosity decay: the diffuse haze dims strongly while the
             // bright filaments persist, so a late remnant is dark gas threaded with
             // a few surviving glowing veins rather than a uniformly fading cloud.
@@ -572,14 +578,14 @@ void main()
     // outside; added with transmittance so opaque gas occludes it and it glows
     // through the wispy edge and the dark holes. Gated to the remnant phase.
     float corona = pow(1.0 - smoothstep(shell_radius * 0.82, shell_radius * 1.55, near_distance), 1.5);
-    accumulated_color += vec3(0.10, 0.62, 1.00) * corona * ejecta_strength * transmittance * 0.6;
+    float corona_reveal = smoothstep(0.35, 0.78, ejecta_strength);
+    accumulated_color += vec3(0.10, 0.62, 1.00) * corona * ejecta_strength * corona_reveal * transmittance * 0.6;
 
     // World-space glare front. The detonation's light is modelled as a luminous
     // sphere centred on the remnant whose radius physically travels: it grows
-    // out from the blast, engulfs the camera (whiteout), then recedes back onto
-    // the remnant to reveal it. Because it lives in world space, its screen size
-    // is set by geometry -- a disk that swells from the remnant, fills the frame,
-    // then collapses back to a point, no hand-tuned screen radius.
+    // out from the blast, engulfs the camera (whiteout), then fades in place to
+    // reveal the remnant underneath. The front no longer shrinks back to the
+    // center; that read too much like the explosion being sucked inward.
     vec3 cam_to_center = sphere_center - u_camera_pos;
     float cam_distance = length(cam_to_center);
     float front_depth = max(dot(cam_to_center, u_camera_forward), 0.001);
@@ -588,30 +594,26 @@ void main()
                              dot(cam_to_center, u_camera_up)) / front_depth;
     float glare_screen_dist = length(centered - remnant_view);
 
-    // Front radius: grows past the camera (overshoot engulfs it), then recedes
-    // all the way back to the remnant's own shell.
+    // Front radius grows past the camera and stays there during fade-out.
     float overshoot_radius = cam_distance * 1.15;
     float grow_radius = mix(0.3, overshoot_radius, event.glare_grow);
-    // Ease-out so the front plunges back through the camera quickly, then spends
-    // most of the recede visibly shrinking to a small knot on the remnant. The
-    // angular size stays screen-filling while the radius is near cam_distance, so
-    // the visible pull-back only happens once the radius drops well below it.
-    float recede_eased = 1.0 - pow(1.0 - event.glare_recede, 2.0);
-    float front_radius = mix(grow_radius, 0.35, recede_eased);
+    float front_radius = grow_radius;
 
-    // Energy holds blinding through the hit and the whole shrink, fading only at
-    // the very end -- so the frame reads as the white disk collapsing onto the
-    // remnant, not just dimming in place.
+    // Energy holds blinding through the hit, then recovers like a flashbang:
+    // both overlay strength and brightness fade, so the screen visibly washes
+    // down through milky whites instead of staying clipped until the end.
+    float recovery = smoothstep(0.0, 1.0, event.glare_recede);
+    float glare_fade = 1.0 - recovery;
     float glare_energy = clamp(event.glare_grow * 1.25, 0.0, 1.0)
-                       * (1.0 - smoothstep(0.85, 1.0, event.glare_recede));
+                       * glare_fade;
 
     if (glare_energy > 0.0) {
         vec3 glare_rgb;
         if (front_radius >= cam_distance) {
             glare_rgb = vec3(1.0); // camera is inside the front: full whiteout
         } else {
-            // Angular size of the sphere on the view plane; as the front recedes
-            // this shrinks, collapsing the white disk back onto the remnant.
+            // Angular size of the sphere on the view plane during the outward
+            // expansion before it engulfs the camera.
             float base_radius = front_radius / sqrt(cam_distance * cam_distance - front_radius * front_radius);
             // Sample the edge per channel at slightly different radii so the
             // receding rim splits into a spectral fringe (chromatic dispersion)
@@ -622,16 +624,22 @@ void main()
             glare_rgb.b = 1.0 - smoothstep(inner * 0.970, base_radius * 0.970, glare_screen_dist);
         }
         vec3 glare_tint = mix(vec3(1.0, 0.97, 0.90), vec3(1.0, 0.88, 0.66), event.glare_recede);
-        float glare_coverage = clamp(max(glare_rgb.r, max(glare_rgb.g, glare_rgb.b)) * glare_energy, 0.0, 1.0);
-        float whiteout_strength = glare_coverage * (1.0 - smoothstep(0.35, 0.92, event.glare_recede));
-        accumulated_color = mix(accumulated_color, vec3(90.0) * glare_tint, whiteout_strength);
-        accumulated_color += glare_tint * glare_rgb * glare_energy * 2.8;
+        float glare_coverage = clamp(max(glare_rgb.r, max(glare_rgb.g, glare_rgb.b)) * clamp(event.glare_grow * 1.25, 0.0, 1.0), 0.0, 1.0);
+        // Only the impact remains in the volume shader. The long white recovery
+        // is composited over the final frame so it can fade cleanly without
+        // tone-mapped scene glow or bloom lingering underneath.
+        float impact_white = 1.0 - smoothstep(0.0, 0.025, event.glare_recede);
+        float impact_glare = 1.0 - smoothstep(0.0, 0.08, event.glare_recede);
+        float whiteout_intensity = 10.0;
+        float whiteout_strength = glare_coverage * impact_white;
+        accumulated_color = mix(accumulated_color, whiteout_intensity * glare_tint, whiteout_strength);
+        accumulated_color += glare_tint * glare_rgb * glare_energy * impact_glare * 1.65;
 
         // Anisotropic bloom: stretch the same detonation light horizontally
         // instead of drawing a separate disk over the round flash. The wide
         // core bridge keeps the flare glued to the white center.
         vec2 flare_p = centered - remnant_view;
-        float flare_life = 1.0 - smoothstep(0.72, 1.0, event.glare_recede);
+        float flare_life = 1.0 - smoothstep(0.0, 0.08, event.glare_recede);
         float line_width = mix(0.055, 0.026, event.glare_recede);
         float line_length = mix(0.85, 2.35, event.glare_grow);
         float horizontal_core = exp(-(flare_p.y * flare_p.y) / (line_width * line_width));
@@ -652,6 +660,27 @@ void main()
         float flare_edge = smoothstep(0.12, 0.9, abs(flare_p.x));
         vec3 lens_tint = mix(vec3(1.0, 0.66, 0.24), vec3(0.62, 0.74, 1.0), flare_edge);
         accumulated_color += lens_tint * blended_flare * 5.2;
+
+        // Blast streaks: thin radial shafts that ride the glare front. The
+        // angular mask creates a few hard spokes, while cheap noise breaks
+        // their strength so the detonation feels turbulent instead of graphic.
+        float flare_radius = length(flare_p);
+        vec2 flare_dir = flare_p / max(flare_radius, 0.001);
+        float flare_angle = atan(flare_p.y, flare_p.x);
+        float spoke_count = 10.0;
+        float spoke_phase = gas_noise_cheap(vec3(flare_dir * 2.4, u_time * 0.18), 2) * 2.4;
+        float spoke_mask = pow(1.0 - abs(sin(flare_angle * spoke_count + spoke_phase)), 28.0);
+        float spoke_noise = gas_noise_cheap(vec3(flare_dir * 8.0 + flare_radius, u_time * 0.24), 2);
+        float spoke_length = exp(-flare_radius * mix(1.15, 0.72, event.glare_grow));
+        float spoke_origin = smoothstep(0.035, 0.16, flare_radius);
+        float spoke_front = smoothstep(0.08, 0.32, flare_radius)
+                          * (1.0 - smoothstep(mix(0.85, 2.25, event.glare_grow),
+                                               mix(1.15, 2.75, event.glare_grow),
+                                               flare_radius));
+        float blast_streaks = spoke_mask * mix(0.35, 1.0, spoke_noise) * spoke_length * spoke_origin * spoke_front;
+        blast_streaks *= glare_energy * (1.0 - smoothstep(0.0, 0.06, event.glare_recede));
+        vec3 streak_tint = mix(vec3(1.0, 0.72, 0.28), vec3(0.50, 0.86, 1.0), smoothstep(0.45, 1.7, flare_radius));
+        accumulated_color += streak_tint * blast_streaks * 4.4;
     }
 
     float luminance = max(accumulated_color.r, max(accumulated_color.g, accumulated_color.b));

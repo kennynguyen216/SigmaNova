@@ -54,6 +54,11 @@ int shader::uniform_location(const std::string& name) const
     return location;
 }
 
+void shader::set_int(const std::string& name, int value) const
+{
+    glUniform1i(uniform_location(name), value);
+}
+
 void shader::set_float(const std::string& name, float value) const
 {
     glUniform1f(uniform_location(name), value);
