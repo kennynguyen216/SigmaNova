@@ -61,6 +61,12 @@ float control_fraction(float value, float min_value, float max_value)
     return std::clamp((value - min_value) / (max_value - min_value), 0.0f, 1.0f);
 }
 
+float smoothstep(float edge0, float edge1, float value)
+{
+    float t = std::clamp((value - edge0) / (edge1 - edge0), 0.0f, 1.0f);
+    return t * t * (3.0f - 2.0f * t);
+}
+
 float event_shake_strength(float event_time)
 {
     // The shake is the blast front striking the camera, so it is keyed to the
@@ -73,6 +79,14 @@ float event_shake_strength(float event_time)
     float snap_on = std::clamp(hit_age / 0.06f, 0.0f, 1.0f);
     float decay = std::exp(-hit_age * 3.2f);
     return 0.055f * snap_on * decay;
+}
+
+float event_camera_pull_distance(float event_time)
+{
+    // Let the blast fill the screen first, then slowly dolly backward as the
+    // remnant expands so its scale stays readable without fighting user input.
+    float reveal = smoothstep(event_flash_start + 0.25f, event_flash_start + 6.5f, event_time);
+    return 2.25f * reveal;
 }
 
 float event_flash_hud_visibility(float event_time)
@@ -378,10 +392,11 @@ int main()
 
         float event_time = supernova_event_active ? current_time - supernova_event_start_time : 0.0f;
         float shake_strength = supernova_event_active ? event_shake_strength(event_time) : 0.0f;
+        float camera_pull = supernova_event_active ? event_camera_pull_distance(event_time) : 0.0f;
         float hud_visibility = supernova_event_active ? 0.0f : 1.0f;
         float shake_x = std::sin(current_time * 83.0f) * shake_strength;
         float shake_y = std::sin(current_time * 121.0f + 1.7f) * shake_strength;
-        glm::vec3 render_camera_pos = scene_camera.position() + scene_camera.right() * shake_x + scene_camera.up() * shake_y;
+        glm::vec3 render_camera_pos = scene_camera.position() - scene_camera.forward() * camera_pull + scene_camera.right() * shake_x + scene_camera.up() * shake_y;
         glm::vec3 render_camera_forward = glm::normalize(scene_camera.forward() + scene_camera.right() * shake_x * 0.35f + scene_camera.up() * shake_y * 0.35f);
 
         // query the real framebuffer size so the shader's aspect ratio stays correct after a resize
