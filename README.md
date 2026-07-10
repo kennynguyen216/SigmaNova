@@ -6,9 +6,9 @@ The goal is to start from a clean graphics programming foundation, then build to
 
 ## Current Milestone
 
-![Supernova remnant evolution demo](assets/captures/supernova-remnant-demo.gif)
+![Latest supernova remnant evolution demo](assets/captures/supernova-remnant-demo.gif)
 
-[Watch the MP4 demo](assets/captures/supernova-remnant-demo.mp4)
+[Watch the latest MP4 demo](assets/captures/supernova-remnant-demo.mp4)
 
 The current build stages a red-supergiant-inspired volumetric star through a supernova event and into an expanding, cooling remnant. The fullscreen fragment shader computes camera rays, raymarches through procedural density, applies emission and absorption/transmittance, tone maps the result, and blends glow over a procedural starfield.
 
@@ -128,9 +128,9 @@ Current controls:
 
 ### 8. Supernova Event And Cooling Remnant
 
-![Supernova remnant evolution demo](assets/captures/supernova-remnant-demo.gif)
+![Latest supernova remnant evolution demo](assets/captures/supernova-remnant-demo.gif)
 
-[Watch the MP4 demo](assets/captures/supernova-remnant-demo.mp4)
+[Watch the latest MP4 demo](assets/captures/supernova-remnant-demo.mp4)
 
 This milestone turns the renderer into a staged supernova sequence. Pressing `SPACE` triggers the event: the red supergiant destabilizes, collapses, flashes, and transitions into an expanding remnant.
 
@@ -261,6 +261,7 @@ Set up the project from scratch and prove the toolchain works:
 
 ### 2026-07-10
 
+- Replaced the README remnant GIF and MP4 with the latest July 10 capture.
 - Added an HDR volume framebuffer and a lightweight full-resolution composite pass.
 - Added GPU-time-driven dynamic volume resolution from `50%` to `100%`, with a `16.67 ms` target and hysteresis/cooldown controls.
 - Moved bright extraction and ping-pong bloom blur targets to half resolution and reduced blur passes from eight to six.
