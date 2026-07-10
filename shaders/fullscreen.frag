@@ -469,6 +469,10 @@ void main()
 
     vec3 accumulated_color = vec3(0.0);
     float transmittance = 1.0;
+    // These masks are uniform for the whole draw. Branching on them skips an
+    // entire material path without introducing per-pixel warp divergence.
+    bool render_star = star_fade > 0.001;
+    bool render_ejecta = ejecta_strength > 0.001;
 
     if (bounds.y > 0.0) {
         float t = max(bounds.x, 0.0); // start marching at entry point unless behind camera
@@ -497,67 +501,49 @@ void main()
             if (core_distance > star_march_radius) {
                 step_size = max(step_size, shell_thickness * 0.55);
             }
-            float density  = sample_density(sample_point, sphere_center, sphere_radius, raggedness);
-            float shell_depth;
-            float ejecta_density = sample_ejecta_density(sample_point, sphere_center, shell_radius, shell_thickness, ejecta_strength, shell_depth);
-            // Higher density maps to hotter gas colors without washing the core
-            // into a flat white blob. The star volume keeps its stellar ramp for
-            // its whole life -- remnant colours belong to ejecta_color(), not here.
-            // Surface heat is a photosphere effect: its factor is zero once the
-            // star whitens/collapses/disperses (core_glow/flash/mist), and it is
-            // zero outside the photosphere band anyway, so skip its two noise
-            // octaves in those cases instead of computing and discarding them.
-            float heat_factor = 1.0 - clamp(core_glow + flash_white + mist, 0.0, 1.0);
-            float surface_heat = 0.0;
-            if (heat_factor > 0.001 && core_distance < sphere_radius * 1.2) {
-                surface_heat = stellar_surface_heat(sample_point, sphere_center, sphere_radius) * heat_factor;
+            vec3 emission = vec3(0.0);
+            float absorption = 0.0;
+
+            if (render_star) {
+                float density = sample_density(sample_point, sphere_center, sphere_radius, raggedness);
+                float heat_factor = 1.0 - clamp(core_glow + flash_white + mist, 0.0, 1.0);
+                float surface_heat = 0.0;
+                if (heat_factor > 0.001 && core_distance < sphere_radius * 1.2) {
+                    surface_heat = stellar_surface_heat(sample_point, sphere_center, sphere_radius) * heat_factor;
+                }
+
+                vec3 cool_gas = vec3(0.22, 0.006, 0.00);
+                vec3 warm_gas = vec3(0.66, 0.045, 0.00);
+                vec3 hot_gas = vec3(0.95, 0.20, 0.025);
+                vec3 flare_patch = vec3(1.0, 0.42, 0.08);
+                vec3 gas_color = mix(cool_gas, warm_gas, density);
+                gas_color = mix(gas_color, hot_gas, smoothstep(0.83, 1.0, density));
+                gas_color = mix(gas_color, flare_patch, smoothstep(0.48, 0.90, surface_heat));
+                float core_proximity = 1.0 - smoothstep(0.0, sphere_radius * 0.55, core_distance);
+                vec3 singularity_white = vec3(1.0, 0.96, 0.88);
+                gas_color = mix(gas_color, singularity_white, clamp(core_glow * core_proximity + flash_white, 0.0, 1.0));
+
+                emission += gas_color * density * u_emission_strength * brightness * star_fade;
+                emission += flare_patch * surface_heat * density * u_emission_strength * 0.95 * star_fade;
+                emission += singularity_white * (core_glow * 5.0) * pow(core_proximity, 2.0) * density * u_emission_strength * star_fade;
+                absorption += density * u_absorption_strength * absorption_scale;
             }
 
-            vec3 cool_gas = vec3(0.22, 0.006, 0.00);
-            vec3 warm_gas = vec3(0.66, 0.045, 0.00);
-            vec3 hot_gas = vec3(0.95, 0.20, 0.025);
-            vec3 flare_patch = vec3(1.0, 0.42, 0.08);
-            vec3 gas_color = mix(cool_gas, warm_gas, density);
-            // High threshold keeps the hot core small and lets turbulence survive.
-            float hot_mask = smoothstep(0.83, 1.0, density);
-            gas_color = mix(gas_color, hot_gas, hot_mask);
-            gas_color = mix(gas_color, flare_patch, smoothstep(0.48, 0.90, surface_heat));
-            // Collapse core: proximity to the center whitens the gas itself and
-            // adds a strong bloom, so the crushed star reads as a brilliant
-            // white-hot point of light rather than a dim red ember. The kernel
-            // stays tighter than the collapsed volume so the pre-flash beat reads
-            // as a tiny white-hot core instead of a large glowing ball.
-            float core_proximity = 1.0 - smoothstep(0.0, sphere_radius * 0.55, core_distance);
-            vec3 singularity_white = vec3(1.0, 0.96, 0.88);
-            // The flash whitens the whole volume, not just the core.
-            gas_color = mix(gas_color, singularity_white, clamp(core_glow * core_proximity + flash_white, 0.0, 1.0));
-            // Remnant colour is applied unconditionally: gating it on ejecta_density
-            // was measured slower, because that test diverges within a warp (strand
-            // vs gap at the same step) and the GPU then runs both sides plus branch
-            // overhead -- more costly than the two noise octaves it would save.
-            vec3 shell_color = ejecta_color(sample_point, sphere_center, shell_depth, ejecta_density, cooling);
-            // afterglow briefly whitens the freshly-revealed remnant, then it cools.
-            vec3 afterglow_shell = mix(shell_color, vec3(1.0, 0.92, 0.82), afterglow * 0.55);
-            vec3 emission = gas_color * density * u_emission_strength * brightness * star_fade;
-            emission += flare_patch * surface_heat * density * u_emission_strength * 0.95 * star_fade;
-            emission += singularity_white * (core_glow * 5.0) * pow(core_proximity, 2.0) * density * u_emission_strength * star_fade;
-            // Age-based luminosity decay: the diffuse haze dims strongly while the
-            // bright filaments persist, so a late remnant is dark gas threaded with
-            // a few surviving glowing veins rather than a uniformly fading cloud.
-            float vein = smoothstep(0.42, 0.90, ejecta_density);
-            float age_fade = mix(1.0 - cooling * 0.62, 1.0 - cooling * 0.15, vein);
-            emission += afterglow_shell * ejecta_density * u_emission_strength * 0.62 * age_fade * ejecta_strength;
-            // Cyan rim glow inside the volume: the ionised outer shell emits,
-            // weighted by the soft (haze-inclusive) density toward the rim. The band
-            // thins with age but the rim stays cyan, so the silhouette keeps a crisp
-            // ionised edge as the body cools.
-            float rim_glow = smoothstep(mix(0.60, 0.82, cooling), 1.0, shell_depth);
-            emission += vec3(0.14, 0.72, 1.00) * ejecta_density * rim_glow * u_emission_strength * mix(0.45, 0.55, cooling) * ejecta_strength;
-            // Higher ejecta absorption makes near strands occlude far ones, so the
-            // remnant reads as layered 3D structure with a darker hollow centre
-            // instead of an additive cotton-candy wash. It thins with age so the
-            // old remnant becomes translucent -- you see through it to the far side.
-            float absorption = (density * u_absorption_strength * absorption_scale) + (ejecta_density * u_absorption_strength * mix(0.55, 0.30, cooling));
+            if (render_ejecta) {
+                float shell_depth = 0.0;
+                float ejecta_density = sample_ejecta_density(sample_point, sphere_center, shell_radius, shell_thickness, ejecta_strength, shell_depth);
+                // This branch is phase-uniform. Keep ejecta_color unconditional
+                // within it: density-based branching would diverge on filaments.
+                vec3 shell_color = ejecta_color(sample_point, sphere_center, shell_depth, ejecta_density, cooling);
+                vec3 afterglow_shell = mix(shell_color, vec3(1.0, 0.92, 0.82), afterglow * 0.55);
+                float vein = smoothstep(0.42, 0.90, ejecta_density);
+                float age_fade = mix(1.0 - cooling * 0.62, 1.0 - cooling * 0.15, vein);
+                emission += afterglow_shell * ejecta_density * u_emission_strength * 0.62 * age_fade * ejecta_strength;
+                float rim_glow = smoothstep(mix(0.60, 0.82, cooling), 1.0, shell_depth);
+                emission += vec3(0.14, 0.72, 1.00) * ejecta_density * rim_glow * u_emission_strength * mix(0.45, 0.55, cooling) * ejecta_strength;
+                absorption += ejecta_density * u_absorption_strength * mix(0.55, 0.30, cooling);
+            }
+
             accumulated_color += transmittance * emission * step_size;
             transmittance *= exp(-absorption * step_size);
             if (transmittance < 0.01) {

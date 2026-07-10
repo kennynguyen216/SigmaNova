@@ -1,6 +1,9 @@
 # local study notes -- never committed
 notes/
 
+# generated benchmark data and optimization reports
+reports/
+
 build/
 vcpkg_installed/
 .vs/

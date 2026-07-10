@@ -19,6 +19,12 @@
       "displayName": "Windows MSVC Debug",
       "configurePreset": "windows-msvc",
       "configuration": "Debug"
+    },
+    {
+      "name": "windows-msvc-release",
+      "displayName": "Windows MSVC Release",
+      "configurePreset": "windows-msvc",
+      "configuration": "Release"
     }
   ]
 }
