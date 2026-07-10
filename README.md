@@ -16,6 +16,8 @@ The latest milestone focuses on visual storytelling: the star becomes unstable, 
 
 Live keyboard tuning still exists for shader development, but the HUD hides during the supernova event so captures can focus on the explosion sequence.
 
+The current render pipeline profiles GPU work with delayed timestamp queries, renders the expensive volume into a dynamically scaled HDR target, applies half-resolution bloom, and composites the result at full display resolution. Normal runs keep VSync enabled for presentation; benchmark mode disables it and captures pass-level timing data.
+
 ## Rendering Notes
 
 The spacetime-fabric grid started as a fullscreen fragment-shader experiment. The early prototype ray marched against a curved surface and procedurally drew grid lines per pixel. That proved the idea, but it caused aliasing: where the grid compressed near the gravity well, thin procedural lines could fall between pixel samples, creating noisy red/purple/cyan artifacts and broken-looking line segments.
@@ -141,28 +143,28 @@ The project is now focused on polishing the supernova sequence as a complete vis
 - refine the remnant color timing so the best magenta/cyan phase appears earlier and lasts longer
 - add a thin leading shock front ahead of the main ejecta shell
 - add a reset/toggle workflow for repeated demo captures
-- add a bloom/FBO pass so the flash, rim, and filaments glow more cinematically
+- validate quality at each dynamic volume-resolution tier and tune the upsampled silhouette
+- investigate conservative screen-space volume bounds and texture-backed 3D noise for the next GPU optimization pass
 - keep the black-hole/accretion-disk idea as a later branch, not the immediate milestone
 
 ## Performance Notes
 
-The volumetric pass is the main performance cost because each visible pixel raymarches through the gas and samples procedural noise repeatedly. A first optimization pass reduced the measured frame time from about `24.0 ms/frame` to `6.84 ms/frame`, improving the scene from roughly `42 FPS` to `146 FPS` on the current machine while preserving the dissolved gas edge and turbulent core.
+The volumetric pass remains the main performance cost because each visible pixel raymarches through the gas and samples procedural noise repeatedly. An initial shader optimization pass reduced title-bar frame time from about `24.0 ms/frame` to `6.84 ms/frame`, improving the scene from roughly `42 FPS` to `146 FPS` while preserving the dissolved gas edge and turbulent core.
 
 Full write-up: [Performance Optimization Report](reports/optimization.md)
 
-Changes made:
+The current renderer adds a second, GPU-timestamped optimization pass:
 
-- replaced the slower sine hash with a cheaper multiplicative hash
-- split procedural noise into full-quality and cheap paths
-- kept domain-warped noise for the main convection cells
-- used cheaper/no-warp noise for fine detail and surface-edge warping
-- normalized FBM output so changing octave counts does not drastically change the look
-- added early exits before expensive noise when a sample is outside the possible gas volume
-- tightened the raymarch bound from `1.4` to `1.35`
-- added adaptive step sizing so thin outer gas uses larger steps than the dense core
-- added a title-bar frame-time/FPS readout for profiling
+- delayed, non-blocking GPU timestamp queries for scene, volume, bloom, composite, HUD, and total frame work
+- phase-specialized star/remnant raymarching so inactive material paths do not evaluate noise
+- a dynamically scaled `50–100%` volume target, with `75%` as the default starting scale
+- half-resolution bright extraction and bloom blur passes
+- batched HUD geometry: one stream upload and draw rather than one draw per rectangle
+- explicit VSync, uncapped, fixed-resolution, and automated benchmark modes
 
-`glfwSwapInterval(0)` is currently used during profiling so the FPS readout reflects shader cost instead of monitor refresh rate. For a polished demo capture, this can be changed back to `glfwSwapInterval(1)`.
+In a controlled MSVC Release benchmark at `800x600`, reducing only the volume from full resolution to `75%` cut total GPU time by `20.8–41.3%`, depending on the event phase. The most expensive settled-remnant phase improved from `10.081 ms` to `6.106 ms` of GPU time. The volume is still the bottleneck, so future performance work should target raymarch coverage, steps, and procedural-noise cost.
+
+Normal runs use `glfwSwapInterval(1)` for stable frame pacing. Use `--no-vsync` for interactive uncapped profiling, `--benchmark` for an automated fixed-75%-volume benchmark, and `--benchmark --full-resolution` for a controlled A/B run.
 
 ## Planned Stack
 
@@ -256,3 +258,13 @@ Set up the project from scratch and prove the toolchain works:
 - Upgraded the remnant into an expanding cooling nebula with cyan ionized edges, magenta/violet gas, dark internal cavities, and sparse filament structure.
 - Added procedural starfield depth behind the event.
 - Captured the supernova remnant evolution GIF and MP4 demo.
+
+### 2026-07-10
+
+- Added an HDR volume framebuffer and a lightweight full-resolution composite pass.
+- Added GPU-time-driven dynamic volume resolution from `50%` to `100%`, with a `16.67 ms` target and hysteresis/cooldown controls.
+- Moved bright extraction and ping-pong bloom blur targets to half resolution and reduced blur passes from eight to six.
+- Specialized the raymarch by event phase so pre-event frames skip ejecta work and settled-remnant frames skip star-density work.
+- Reworked the HUD into one streamed vertex upload and one draw call per frame.
+- Added delayed GPU timestamp queries and title-bar CPU/GPU pass timing display without CPU-GPU synchronization stalls.
+- Measured a `20.8–41.3%` total GPU-time reduction at `75%` volume resolution versus the same renderer at full volume resolution.
