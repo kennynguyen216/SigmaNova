@@ -1,5 +1,3 @@
-## This was with the help of AI. 
-
 ## The red supergiant was originally running at around `42 FPS`, or `24.0 ms/frame`. After optimizing the volumetric gas renderer, it improved to roughly `146 FPS`, or `6.84 ms/frame`.
 
 - This is about a `3.5x` speedup while keeping the main visual result intact: the dissolved gas silhouette, turbulent core, warm plasma color, and soft halo over the spacetime fabric still read correctly.
