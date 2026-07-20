@@ -10,9 +10,13 @@ The goal is to start from a clean graphics programming foundation, then build to
 
 [Watch the latest MP4 demo](assets/captures/supernova-remnant-demo.mp4)
 
+![Final remnant with compact pulsar](assets/captures/supernova-remnant-pulsar-hero.png)
+
 The current build stages a red-supergiant-inspired volumetric star through a supernova event and into an expanding, cooling remnant. The fullscreen fragment shader computes camera rays, raymarches through procedural density, applies emission and absorption/transmittance, tone maps the result, and blends glow over a procedural starfield.
 
-The latest milestone focuses on visual storytelling: the star becomes unstable, collapses into a bright flash, then reveals a translucent nebula-like remnant. The remnant cools over time from warm ejecta into magenta, violet, and cyan ionized gas with darker cavities and lacy filament structure.
+The finished Version 1 sequence focuses on visual storytelling: the star becomes unstable, collapses into a bright flash, then reveals a translucent nebula-like remnant. The remnant cools from warm ejecta into magenta, violet, and cyan ionized gas with dark cavities, persistent asymmetric lobes, and a compact pulsing core.
+
+The compact core represents the neutron star left by the collapse. Its distance-faded emission gently lifts nearby ejecta before tone mapping and bloom, a visual nod to pulsar wind nebulae such as the Crab Nebula rather than a physical pulsar-wind simulation.
 
 Live keyboard tuning still exists for shader development, but the HUD hides during the supernova event so captures can focus on the explosion sequence.
 
@@ -136,22 +140,29 @@ This milestone turns the renderer into a staged supernova sequence. Pressing `SP
 
 The remnant is still procedural and shader-driven. The ejecta shell uses warped bounds, sparse filament density, evolving color, and transmittance so it can move from a hot compact blast into a cooler, translucent nebula. The color arc now shifts from warm salmon/orange ejecta into magenta, violet, and cyan ionized gas while darker internal cavities remain visible.
 
-## Next Up
+The final silhouette uses stable, low-frequency directional lobes over softer turbulent detail. Stronger radial filament stretching was tested, but it produced a stringy, watery appearance. The softer turbulence was retained because the large lobes already communicate expansion while preserving gaseous volume.
 
-The project is now focused on polishing the supernova sequence as a complete visual scene:
+Visual inspiration: [NASA Scientific Visualization Studio - Supernova Explosions](https://svs.gsfc.nasa.gov/20413/)
 
-- refine the remnant color timing so the best magenta/cyan phase appears earlier and lasts longer
+| Earlier remnant | Final lobe and pulsar pass |
+|---|---|
+| ![Earlier circular remnant](assets/captures/supernova-remnant-before-lobes.png) | ![Final asymmetric remnant with pulsar](assets/captures/supernova-remnant-pulsar-hero.png) |
+
+## Version 1 Status
+
+Version 1 is feature-complete, captured, benchmarked, and documented. Possible post-MVP branches include:
+
 - add a thin leading shock front ahead of the main ejecta shell
 - add a reset/toggle workflow for repeated demo captures
 - validate quality at each dynamic volume-resolution tier and tune the upsampled silhouette
 - investigate conservative screen-space volume bounds and texture-backed 3D noise for the next GPU optimization pass
-- keep the black-hole/accretion-disk idea as a later branch, not the immediate milestone
+- explore a real fluid solver or black-hole/accretion-disk ending as separate post-MVP work
 
 ## Performance Notes
 
 The volumetric pass remains the main performance cost because each visible pixel raymarches through the gas and samples procedural noise repeatedly. An initial shader optimization pass reduced title-bar frame time from about `24.0 ms/frame` to `6.84 ms/frame`, improving the scene from roughly `42 FPS` to `146 FPS` while preserving the dissolved gas edge and turbulent core.
 
-Full write-up: [Performance Optimization Report](reports/optimization.md)
+Full write-up: [Performance And Final Benchmark](PERFORMANCE.md)
 
 The current renderer adds a second, GPU-timestamped optimization pass:
 
@@ -162,7 +173,9 @@ The current renderer adds a second, GPU-timestamped optimization pass:
 - batched HUD geometry: one stream upload and draw rather than one draw per rectangle
 - explicit VSync, uncapped, fixed-resolution, and automated benchmark modes
 
-In a controlled MSVC Release benchmark at `800x600`, reducing only the volume from full resolution to `75%` cut total GPU time by `20.8–41.3%`, depending on the event phase. The most expensive settled-remnant phase improved from `10.081 ms` to `6.106 ms` of GPU time. The volume is still the bottleneck, so future performance work should target raymarch coverage, steps, and procedural-noise cost.
+The final July 20 lobe-and-pulsar build was re-benchmarked in MSVC Release at `800x600`, using the same camera and event timeline with VSync disabled. At `75%` volume resolution, the settled remnant averaged `25.428 ms` of GPU time (`24.612 ms` in the volume pass), versus `44.881 ms` total at full volume resolution. The larger visible shell costs more than the earlier compact remnant, but the optimized target remains below `30 ms` of GPU work and is `43.3%` faster than the matched full-resolution pass.
+
+Final benchmark: [Performance And Final Benchmark](PERFORMANCE.md#final-remnant-benchmark---2026-07-20)
 
 Normal runs use `glfwSwapInterval(1)` for stable frame pacing. Use `--no-vsync` for interactive uncapped profiling, `--benchmark` for an automated fixed-75%-volume benchmark, and `--benchmark --full-resolution` for a controlled A/B run.
 
@@ -269,3 +282,12 @@ Set up the project from scratch and prove the toolchain works:
 - Reworked the HUD into one streamed vertex upload and one draw call per frame.
 - Added delayed GPU timestamp queries and title-bar CPU/GPU pass timing display without CPU-GPU synchronization stalls.
 - Measured a `20.8–41.3%` total GPU-time reduction at `75%` volume resolution versus the same renderer at full volume resolution.
+
+### 2026-07-20
+
+- Reworked ejecta bounds so persistent low-frequency lobes are not clipped by the raymarch volume.
+- Shifted the flash handoff directly into the magenta/cyan remnant palette and preserved dark internal cavities.
+- Added a compact pulsar that is attenuated by foreground gas and softly illuminates nearby inner ejecta.
+- Rejected stronger radial filament stretching after visual tests produced a stringy, watery result.
+- Captured the final hero still, GIF, and MP4 sequence.
+- Re-benchmarked the approved remnant at both `75%` and `100%` volume resolution.

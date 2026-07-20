@@ -43,6 +43,17 @@ const float RECEDE_START = GLARE_HIT + 0.28;      // blind beat, then flashbang-
 const float RECEDE_END = RECEDE_START + 2.2;      // slow cinematic reveal fadeout
 const float MIST_END = RECEDE_END; // remnant is settled right as it is revealed
 
+// Analytic limits shared by the ejecta density field and its raymarch bounds.
+// Keep these synchronized with sample_ejecta_density() so long arms cannot be
+// clipped and the hollow-interior skip cannot jump over valid shell density.
+const float EJECTA_MID_MIN_RADIUS_SCALE = 0.74;
+const float EJECTA_MID_MAX_RADIUS_SCALE = 1.28;
+const float EJECTA_MAX_THICKNESS_SCALE = 1.45;
+const float EJECTA_SIGMA_CUTOFF = 3.0;
+const float EJECTA_LOBE_FREQUENCY = 0.70;
+const float EJECTA_LOBE_SHARPNESS = 3.8;
+const float EJECTA_LOBE_REACH = 1.65;
+
 struct EventState {
     float swell;        // 0 at rest -> 1 fully swollen, unstable pre-collapse star
     float collapse;     // 0 -> 1 as the star implodes and the core superheats
@@ -193,6 +204,14 @@ float gas_noise_cheap(vec3 p, int octaves)
     return clamp(fbm(animate_point(p * u_noise_scale), octaves) * 1.11, 0.0, 1.0);
 }
 
+// Stable direction-space noise for the remnant's largest silhouette features.
+// Unlike the gas-detail helpers, this deliberately has no normal-speed time
+// offset: the major ejecta arms persist while smaller gas structures churn.
+float gas_noise_stable(vec3 p, int octaves)
+{
+    return clamp(fbm(p * u_noise_scale, octaves) * 1.11, 0.0, 1.0);
+}
+
 // Samples the current procedural density field. Later this can be swapped for texture-backed simulation data.
 // Raggedness is a parameter (not the raw uniform) so event phases can agitate
 // the edge without this function knowing about the timeline.
@@ -251,10 +270,9 @@ float stellar_surface_heat(vec3 p, vec3 sphere_center, float sphere_radius)
     return active_regions * photosphere_band;
 }
 
-// Returns the ejecta density and, via out_shell_depth, the sample's normalized
-// position across the (direction-warped) shell. Both are derived from the same
-// lobe noise, so depth is a free by-product -- the old ejecta_shell_depth()
-// recomputed that noise for every sample.
+// Returns the ejecta density and the sample's normalized position across the
+// direction-warped shell. The approved large-lobe silhouette is layered over
+// the original soft filament field below.
 float sample_ejecta_density(vec3 p, vec3 sphere_center, float shell_radius, float shell_thickness, float shell_strength, out float out_shell_depth)
 {
     out_shell_depth = 0.0;
@@ -272,7 +290,16 @@ float sample_ejecta_density(vec3 p, vec3 sphere_center, float shell_radius, floa
     float fine_lobes = gas_noise_cheap(dir * 6.2 + vec3(4.0, 29.0, 17.0), 2);
     float directional_push = mix(lobe_noise, fine_lobes, 0.35);
     directional_push = directional_push * directional_push;
-    float warped_radius = shell_radius * mix(0.74, 1.28, directional_push);
+
+    // A lower-frequency layer organizes that texture into a few persistent
+    // arms. Sharpening leaves most directions at the ordinary shell radius
+    // while allowing only the strongest regions to approach the full reach.
+    float large_lobes = gas_noise_stable(dir * EJECTA_LOBE_FREQUENCY + vec3(73.0, 9.0, 31.0), 2);
+    large_lobes = pow(large_lobes, EJECTA_LOBE_SHARPNESS);
+    float large_lobe_reach = mix(1.0, EJECTA_LOBE_REACH, large_lobes);
+    float warped_radius = shell_radius
+        * mix(EJECTA_MID_MIN_RADIUS_SCALE, EJECTA_MID_MAX_RADIUS_SCALE, directional_push)
+        * large_lobe_reach;
     float warped_thickness = shell_thickness * mix(0.75, 1.45, fine_lobes);
 
     out_shell_depth = clamp((distance_center - (warped_radius - warped_thickness)) / (warped_thickness * 2.0), 0.0, 1.0);
@@ -294,10 +321,8 @@ float sample_ejecta_density(vec3 p, vec3 sphere_center, float shell_radius, floa
         gas_noise_cheap(p * 1.05 + vec3(4.0, 7.0, 3.0), 2)) - 0.5;
     vec3 wdir = normalize(dir + warp * 0.8);
 
-    // Radial filaments in the warped frame: wdir is (mostly) constant along a
-    // radius so this stays a stretched-outward strand, but the warp bends it into
-    // a flowing wisp. Softer ridge power keeps strands gauzy, not spiky; a slow
-    // radial term breaks them into segments along their length.
+    // Radial filaments in the warped frame: wdir is mostly constant along a
+    // radius, while the position-space term breaks strands into soft segments.
     float ang = gas_noise_cheap(wdir * 4.6 + vec3(31.0, 7.0, 19.0), 3);
     float finger_ridge = 1.0 - abs(2.0 * ang - 1.0);
     float radial_break = gas_noise_cheap((p + warp * 0.4) * 1.6 + vec3(3.0, 41.0, 12.0), 2);
@@ -321,7 +346,7 @@ vec3 ejecta_color(vec3 p, vec3 sphere_center, float shell_depth, float filament_
     // Warm H-alpha fills the interior (salmon-orange heart deepening to red);
     // cool O-III is confined to the ionised outer shell, the single cyan accent
     // that wraps the silhouette.
-    vec3 warm = mix(vec3(1.00, 0.52, 0.24), vec3(0.85, 0.20, 0.10), smoothstep(0.10, 0.70, shell_depth));
+    vec3 warm = mix(vec3(1.00, 0.30, 0.14), vec3(0.82, 0.06, 0.12), smoothstep(0.10, 0.70, shell_depth));
     // Age the body: warm -> purple -> deep blue as the gas cools and recombines.
     vec3 aged = mix(vec3(0.52, 0.10, 0.66), vec3(0.10, 0.16, 0.72), cooling);
     vec3 body = mix(warm, aged, cooling * 0.85);
@@ -334,17 +359,32 @@ vec3 ejecta_color(vec3 p, vec3 sphere_center, float shell_depth, float filament_
     float rim_band = smoothstep(rim_lo, 0.98, shell_depth) * rim_breakup;
     vec3 base = mix(body, vec3(0.10, 0.78, 1.00), rim_band);
 
-    // Magenta secondary peaks through the mid phase -- the beauty stage where the
-    // channels separate most strongly -- and fades again as the body goes blue.
+    // Broad low-frequency color volumes separate the warm/magenta interior from
+    // the ionised cyan boundary. This changes hue over cloud-sized regions rather
+    // than tracing fine density contours, preserving a billowing gaseous read.
     float mid_phase = cooling * (1.0 - cooling) * 4.0;
-    float magenta_patch = smoothstep(0.60, 0.90, gas_noise_cheap(p * 0.72 + vec3(19.0, 3.0, 27.0), 2))
+    float color_cloud = gas_noise_cheap(p * 0.48 + vec3(19.0, 3.0, 27.0), 2);
+    float inner_zone = 1.0 - smoothstep(0.50, 0.82, shell_depth);
+    vec3 inner_color = mix(vec3(0.48, 0.08, 0.72), vec3(0.98, 0.16, 0.52), color_cloud);
+    float inner_color_strength = inner_zone * (0.18 + mid_phase * 0.30) * (0.55 + color_cloud * 0.45);
+    base = mix(base, inner_color, inner_color_strength);
+
+    float magenta_patch = smoothstep(0.52, 0.84, color_cloud)
                         * smoothstep(0.18, 0.55, shell_depth) * (1.0 - rim_band);
-    base = mix(base, vec3(0.95, 0.12, 0.42), magenta_patch * (0.28 + 0.4 * mid_phase));
+    base = mix(base, vec3(0.95, 0.12, 0.48), magenta_patch * (0.20 + 0.32 * mid_phase));
 
     // A few hottest strand cores keep glowing orange even as the body cools, so
     // an aged remnant is dark blue gas threaded with surviving warm filaments.
     float hot_core = smoothstep(0.82, 1.0, filament_density);
     base = mix(base, vec3(1.00, 0.46, 0.12), hot_core * (0.35 + 0.35 * (1.0 - cooling)));
+
+    // Only a few dense regions inside the broad color clouds reach white heat.
+    // Bloom can radiate from these anchors while the rest of the remnant keeps
+    // its saturated magenta/cyan palette.
+    float white_cloud = smoothstep(0.78, 0.95, color_cloud)
+                      * smoothstep(0.76, 0.98, filament_density)
+                      * (1.0 - rim_band * 0.65);
+    base = mix(base, vec3(1.0, 0.94, 1.0), white_cloud * mix(0.72, 0.08, cooling));
 
     // Strand cores carry the light; gaps fall toward black so they read as empty
     // space, not dim fog.
@@ -421,6 +461,10 @@ void main()
     // the magenta/purple beauty phase early (~age 3) so viewers see the best
     // version without waiting for the full lifecycle.
     float cooling = smoothstep(1.5, 5.5, ejecta_age);
+    // Color develops faster than the remnant physically fades. Most of this
+    // transition happens behind the whiteout, so the first visible frame is
+    // already magenta/cyan instead of exposing an intermediate peach shell.
+    float palette_age = max(cooling, smoothstep(0.0, 2.6, ejecta_age));
     // Launch is synced to the whiteout, NOT the shell's age: the shell inflates
     // to its revealed size entirely *behind the flash and full whiteout*
     // (FLASH_START -> RECEDE_START), so the instant the white starts to lift the
@@ -445,20 +489,34 @@ void main()
 
     float sphere_radius = radius_scale;   // nominal radius the density field fades out around
     float star_march_radius = sphere_radius * (0.9 + raggedness);   // matches the density field's maximum warped radius
-    float ejecta_march_radius = shell_radius + shell_thickness * 3.0;
-    float march_radius = mix(star_march_radius, max(star_march_radius, ejecta_march_radius), ejecta_strength);
+
+    // Keep the analytic march bounds synchronized with sample_ejecta_density().
+    // The shell center reaches 1.28R times the large-lobe reach, its thickness
+    // reaches 1.45T, and density remains nonzero through three shell widths.
+    float ejecta_density_extent = shell_thickness * EJECTA_MAX_THICKNESS_SCALE * EJECTA_SIGMA_CUTOFF;
+    float ejecta_march_radius = shell_radius * EJECTA_MID_MAX_RADIUS_SCALE * EJECTA_LOBE_REACH
+                              + ejecta_density_extent;
+    float march_radius = ejecta_strength > 0.001
+        ? max(star_march_radius, ejecta_march_radius)
+        : star_march_radius;
     vec2 bounds = hit_sphere_bounds(ray_origin, ray_dir, sphere_center, march_radius);
     // Between the star volume's outer surface and the ejecta shell's inner
     // face there is provably no medium -- both density functions early-out
     // there. The march loop jumps that hollow interior analytically instead
     // of stepping through it. (Pre-detonation this radius sits inside the
     // star, so the skip condition simply never fires.)
-    float shell_inner_radius = shell_radius - shell_thickness * 3.0;
+    float shell_inner_radius = max(
+        shell_radius * EJECTA_MID_MIN_RADIUS_SCALE - ejecta_density_extent,
+        0.0);
 
     // Wide soft halo, keyed loosely to the nominal radius so there is no hard ring
     // at exactly R. This is the only "atmosphere" term left now that the rim/collar
     // are gone; the volume itself supplies the disk edge.
     float near_distance = ray_sphere_near_distance(ray_origin, ray_dir, sphere_center);
+    float pulsar_reveal = u_event_active
+        * smoothstep(RECEDE_START + 0.18, RECEDE_END + 0.15, u_event_time);
+    float pulse_wave = 0.5 + 0.5 * sin(u_time * 11.3097); // 1.8 Hz
+    float pulse_strength = mix(0.68, 1.0, pulse_wave * pulse_wave);
     float halo = 1.0 - smoothstep(sphere_radius * 0.85, sphere_radius * 2.1, near_distance);
     halo = pow(halo, 2.0);
     // The halo whitens and intensifies with the collapsing core, then blows
@@ -469,6 +527,9 @@ void main()
 
     vec3 accumulated_color = vec3(0.0);
     float transmittance = 1.0;
+    float closest_t = max(dot(sphere_center - ray_origin, ray_dir), 0.0);
+    float center_transmittance = 1.0;
+    bool center_transmittance_captured = false;
     // These masks are uniform for the whole draw. Branching on them skips an
     // entire material path without introducing per-pixel warp divergence.
     bool render_star = star_fade > 0.001;
@@ -487,7 +548,14 @@ void main()
             // inside the void can never overshoot into the shell. The whole
             // empty interior costs one iteration instead of dozens.
             if (core_distance > star_march_radius && core_distance < shell_inner_radius) {
-                t += max(shell_inner_radius - core_distance, 0.05);
+                float skip_distance = max(shell_inner_radius - core_distance, 0.05);
+                if (!center_transmittance_captured
+                    && closest_t >= t
+                    && closest_t < t + skip_distance) {
+                    center_transmittance = transmittance;
+                    center_transmittance_captured = true;
+                }
+                t += skip_distance;
                 continue;
             }
             // Step bounds scale with the star so a swollen star keeps the same
@@ -534,23 +602,62 @@ void main()
                 float ejecta_density = sample_ejecta_density(sample_point, sphere_center, shell_radius, shell_thickness, ejecta_strength, shell_depth);
                 // This branch is phase-uniform. Keep ejecta_color unconditional
                 // within it: density-based branching would diverge on filaments.
-                vec3 shell_color = ejecta_color(sample_point, sphere_center, shell_depth, ejecta_density, cooling);
-                vec3 afterglow_shell = mix(shell_color, vec3(1.0, 0.92, 0.82), afterglow * 0.55);
+                vec3 shell_color = ejecta_color(sample_point, sphere_center, shell_depth, ejecta_density, palette_age);
+                // Fade the remnant's heat tint underneath the receding whiteout.
+                // By the time the scene is visible, color is already present;
+                // this avoids a second pale flash before the palette appears.
+                float visible_afterglow = afterglow * (1.0 - event.glare_recede);
+                vec3 afterglow_shell = mix(shell_color, vec3(1.0, 0.96, 1.0), visible_afterglow * 0.35);
                 float vein = smoothstep(0.42, 0.90, ejecta_density);
-                float age_fade = mix(1.0 - cooling * 0.62, 1.0 - cooling * 0.15, vein);
+                float age_fade = mix(1.0 - cooling * 0.62, 1.0 - cooling * 0.35, vein);
                 emission += afterglow_shell * ejecta_density * u_emission_strength * 0.62 * age_fade * ejecta_strength;
                 float rim_glow = smoothstep(mix(0.60, 0.82, cooling), 1.0, shell_depth);
-                emission += vec3(0.14, 0.72, 1.00) * ejecta_density * rim_glow * u_emission_strength * mix(0.45, 0.55, cooling) * ejecta_strength;
-                absorption += ejecta_density * u_absorption_strength * mix(0.55, 0.30, cooling);
+                emission += vec3(0.14, 0.72, 1.00) * ejecta_density * rim_glow * u_emission_strength * mix(0.45, 0.40, cooling) * ejecta_strength;
+                // The compact remnant softly lights only the inner ejecta.
+                // A strong baseline keeps the nebula breathing instead of
+                // blinking, while the exponential falloff prevents a broad
+                // glowing ball from forming around the pulsar.
+                float normalized_core_distance = core_distance / max(shell_radius, 0.001);
+                float pulsar_light_falloff = exp(
+                    -2.2 * normalized_core_distance * normalized_core_distance);
+                float pulsar_light = pulsar_reveal
+                    * pulsar_light_falloff
+                    * mix(0.76, 1.0, pulse_wave * pulse_wave);
+                vec3 pulsar_light_color = mix(
+                    vec3(0.72, 0.28, 0.92),
+                    vec3(0.72, 0.90, 1.00),
+                    clamp(1.0 - normalized_core_distance, 0.0, 1.0));
+                emission += pulsar_light_color
+                    * ejecta_density
+                    * u_emission_strength
+                    * pulsar_light
+                    * 0.32;
+                absorption += ejecta_density * u_absorption_strength * mix(0.55, 0.42, cooling);
             }
 
+            float transmittance_before_step = transmittance;
             accumulated_color += transmittance * emission * step_size;
             transmittance *= exp(-absorption * step_size);
+            if (!center_transmittance_captured
+                && closest_t >= t
+                && closest_t < t + step_size) {
+                float distance_to_center_plane = closest_t - t;
+                center_transmittance = transmittance_before_step
+                    * exp(-absorption * distance_to_center_plane);
+                center_transmittance_captured = true;
+            }
             if (transmittance < 0.01) {
                 break;
             }
             t += step_size;
         }
+    }
+
+    // An opaque foreground can terminate the march before the ray reaches the
+    // center plane. Preserve that attenuation instead of leaving the pulsar at
+    // its default full visibility in this edge case.
+    if (!center_transmittance_captured) {
+        center_transmittance = transmittance;
     }
 
     // The halo fills in behind the gas: where the star is opaque it is occluded
@@ -566,6 +673,19 @@ void main()
     float corona = pow(1.0 - smoothstep(shell_radius * 0.82, shell_radius * 1.55, near_distance), 1.5);
     float corona_reveal = smoothstep(0.35, 0.78, ejecta_strength);
     accumulated_color += vec3(0.10, 0.62, 1.00) * corona * ejecta_strength * corona_reveal * transmittance * 0.6;
+
+    // Compact stellar remnant. It appears as the flash recedes, never turns
+    // completely off, and is dimmed by the gas between it and the camera.
+    // Keeping it in HDR space lets the bloom pass provide the surrounding glow.
+    float pulsar_core = 1.0 - smoothstep(0.014, 0.052, near_distance);
+    float pulsar_aura = exp(-near_distance * near_distance / (2.0 * 0.095 * 0.095));
+    float pulsar_visibility = max(sqrt(center_transmittance), 0.10);
+    vec3 pulsar_color = vec3(0.72, 0.90, 1.0);
+    accumulated_color += pulsar_color
+        * (pulsar_core * 26.0 + pulsar_aura * 3.0)
+        * pulsar_reveal
+        * pulse_strength
+        * pulsar_visibility;
 
     // World-space glare front. The detonation's light is modelled as a luminous
     // sphere centred on the remnant whose radius physically travels: it grows
